@@ -327,13 +327,10 @@ endif
 ifeq ($(K3),y)
 OBJS += $(if $(wildcard k3.c), k3.o, prebuild/k3.o)
 OBJS += $(if $(wildcard k3ex.c), k3ex.o, prebuild/k3ex.o)
-endif
 else ifeq ($(K3C),y)
 OBJS += $(if $(wildcard k3c.c), k3c.o, prebuild/k3c.o)
-endif
 else ifeq ($(R7900P),y)
 OBJS += $(if $(wildcard r7900p.c), r7900p.o, prebuild/r7900p.o)
-endif
 else ifeq ($(R8000P),y)
 OBJS += $(if $(wildcard r7900p.c), r7900p.o, prebuild/r7900p.o)
 else
@@ -419,7 +416,7 @@ endif
 endif
 
 ifeq ($(RTCONFIG_FRS_LIVE_UPDATE),y)
-ifneq ($(MERLINR_NAME), $(filter $(MERLINR_NAME), K3 K3C R7900P R8000P))
+ifneq ($(BUILD_NAME), $(filter $(BUILD_NAME), RT-AC3100 RT-AC3200 RT-AC68U RT-AC86U GT-AC5300 GT-AC2900 BLUECAVE RT-AC85P RT-ACRH17))
 OBJS += frs_service.o
 endif
 endif
