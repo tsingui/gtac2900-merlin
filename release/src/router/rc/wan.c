@@ -622,6 +622,11 @@ void update_wan_state(char *prefix, int state, int reason)
 		snprintf(tmp, sizeof(tmp), "/var/run/ppp-wan%d.status", unit);
 		unlink(tmp);
 	}
+    else if (state == WAN_STATE_CONNECTED) {
+	sprintf(tmp,"%c",prefix[3]);
+               run_custom_script("wan-start", 0, tmp, NULL);
+    }
+
 }
 
 #ifdef RTCONFIG_IPV6
@@ -1979,6 +1984,18 @@ int update_resolvconf(void)
 		fclose(fp);
 		goto error;
 	}
+#if defined(RTCONFIG_SMARTDNS)
+	FILE *fp_smartdns;
+	if (!(fp_smartdns = fopen("/tmp/resolv.smartdns", "w+"))) {
+		perror("/tmp/resolv.smartdns");
+		fclose(fp);
+		fclose(fp_servers);
+		goto error;
+	}
+	fprintf(fp_smartdns, "server=127.0.0.1#9053\n");
+	fclose(fp_smartdns);
+	start_smartdns();
+#endif
 
 	{
 		for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
@@ -4183,4 +4200,5 @@ int detwan_main(int argc, char *argv[]){
 	return 0;
 }
 #endif	/* RTCONFIG_DETWAN */
+
 

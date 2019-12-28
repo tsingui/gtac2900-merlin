@@ -37,6 +37,20 @@
 #include <rc.h>
 #include <stdarg.h>
 
+#if defined(K3)
+#include <k3.h>
+#elif defined(R7900P) || defined(R8000P)
+#include <r7900p.h>
+#elif defined(K3C)
+#include <k3c.h>
+#elif defined(SBRAC1900P)
+#include "ac1900p.h"
+#elif defined(SBRAC3200P)
+#include "ac3200p.h"
+#else
+#include "merlinr.h"
+#endif
+
 #define SECONDS_TO_WAIT 3
 #define NTP_RETRY_INTERVAL 30
 
@@ -78,7 +92,11 @@ static void ntp_service()
 		notify_rc("restart_diskmon");
 #endif
 #ifdef RTCONFIG_UUPLUGIN
+#if defined(R7900P) || defined(R8000P)
+		exec_uu_merlinr();
+#else
 		exec_uu();
+#endif
 #endif
 	}
 }

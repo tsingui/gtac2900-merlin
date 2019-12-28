@@ -180,7 +180,11 @@ endif
 endif
 else
 ifeq ($(RTCONFIG_HTTPS),y)
+ifeq ($(BUILD_NAME), $(filter $(BUILD_NAME), RTAC3100 RTAC3200 RTAC68U RTAC86U GTAC5300 GTAC2900 BLUECAVE RTAC85P RTACRH17 RTAX88U GT-AX11000 RT-AX92U))
+	cp -f webs_scripts/merlinr_webs_upgrade.sh $(INSTALLDIR)/usr/sbin/webs_upgrade.sh
+else
 	cp -f webs_scripts/ssl_webs_upgrade.sh $(INSTALLDIR)/usr/sbin/webs_upgrade.sh
+endif
 ifeq ($(RTCONFIG_FBWIFI),y)
 	cp -f webs_scripts/fbwifi_webs_update.sh $(INSTALLDIR)/usr/sbin/webs_update.sh
 else ifeq ($(RTAC68A),y)
@@ -191,8 +195,13 @@ else
 	cp -f webs_scripts/ssl_webs_update.sh $(INSTALLDIR)/usr/sbin/webs_update.sh
 endif
 ifeq ($(RTCONFIG_CFGSYNC),y)
+ifeq ($(BUILD_NAME), $(filter $(BUILD_NAME), RTAC3100 RTAC3200 RTAC68U RTAC86U GTAC5300 GTAC2900 BLUECAVE RTAC85P RTACRH17 RTAX88U GT-AX11000 RT-AX92U))
+	cp -f webs_scripts/merlinr_webs_download.sh $(INSTALLDIR)/usr/sbin/webs_download.sh
+	cp -f webs_scripts/merlinr_webs_note.sh $(INSTALLDIR)/usr/sbin/webs_note.sh
+else
 	cp -f webs_scripts/ssl_webs_download.sh $(INSTALLDIR)/usr/sbin/webs_download.sh
 	cp -f webs_scripts/ssl_webs_note.sh $(INSTALLDIR)/usr/sbin/webs_note.sh
+endif
 endif
 else
 	cp -f webs_scripts/nozip_webs_upgrade.sh $(INSTALLDIR)/usr/sbin/webs_upgrade.sh
@@ -296,3 +305,4 @@ else
 endif
 
 .PHONY: dummy
+

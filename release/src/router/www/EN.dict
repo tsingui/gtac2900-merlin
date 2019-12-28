@@ -3623,3 +3623,5 @@ AURA_Event_Login_desc=When failing to log-in, you will see the LED bar use a red
 AURA_Event_Attack=Attack Block
 AURA_Event_Attack_desc=When the system successfully blocks a potential attack, you will see a LED bar use a red comet effect.
 AURA_Event_Note=Note: After selecting Event, the system will show different LED effects based on the current detected event. You cannot control your device's LEDs while using this function.
+Softcenter=Softcenter
+Softcenter_tool=Tools

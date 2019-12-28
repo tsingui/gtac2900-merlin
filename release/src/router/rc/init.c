@@ -77,6 +77,20 @@
 #include <sys/statfs.h>
 #endif
 
+#if defined(K3C)
+#include <k3c.h>
+#elif defined(K3)
+#include <k3.h>
+#elif defined(SBRAC1900P)
+#include <1900p.h>
+#elif defined(SBRAC3200P)
+#include <3200p.h>
+#elif defined(R7900P) || defined(R8000P)
+#include <r7900p.h>
+#else
+#include <merlinr.h>
+#endif
+
 #define SHELL "/bin/sh"
 #define LOGIN "/bin/login"
 
@@ -110,18 +124,21 @@ static char *defenv[] = {
 	"HOME=/",
 	//"PATH=/usr/bin:/bin:/usr/sbin:/sbin",
 #ifdef RTCONFIG_LANTIQ
-	"PATH=/opt/usr/bin:/opt/bin:/opt/usr/sbin:/opt/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/rom/opt/lantiq/bin:/rom/opt/lantiq/usr/sbin",
+	"PATH=/opt/usr/bin:/opt/bin:/opt/usr/sbin:/opt/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/rom/opt/lantiq/bin:/rom/opt/lantiq/usr/sbin:/jffs/softcenter/bin:/jffs/softcenter/scripts",
 #else
-	"PATH=/opt/usr/bin:/opt/bin:/opt/usr/sbin:/opt/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+	"PATH=/opt/usr/bin:/opt/bin:/opt/usr/sbin:/opt/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/jffs/softcenter/bin:/jffs/softcenter/scripts",
 #endif
 #ifdef HND_ROUTER
-	"LD_LIBRARY_PATH=/lib:/usr/lib:/lib/aarch64",
+	"LD_LIBRARY_PATH=/lib:/usr/lib:/lib/aarch64:/jffs/softcenter/lib",
 #endif
 #ifdef RTCONFIG_BCM_MFG
 	"PS1=# ",
 #endif
 #ifdef RTCONFIG_LANTIQ
-	"LD_LIBRARY_PATH=/lib:/usr/lib:/opt/lantiq/usr/lib:/opt/lantiq/usr/sbin/:/tmp/wireless/lantiq/usr/lib/",
+	"LD_LIBRARY_PATH=/lib:/usr/lib:/opt/lantiq/usr/lib:/opt/lantiq/usr/sbin/:/tmp/wireless/lantiq/usr/lib/:/jffs/softcenter/lib",
+#endif
+#if defined(RTAC3100) || defined(RTAC68U) || defined(RTAC3200)
+	"LD_LIBRARY_PATH=/lib:/usr/lib:/jffs/softcenter/lib",
 #endif
 	"SHELL=" SHELL,
 	"USER=root",
@@ -10381,6 +10398,7 @@ static void sysinit(void)
 		"/tmp/lib/firmware",
 		"/tmp/etc/wireless",
 #endif // RTCONFIG_WLMODULE_MT7663E_AP
+		"/tmp/etc/dnsmasq.user",	// ssr and adbyby
 		NULL
 	};
 	umask(0);
@@ -10720,7 +10738,11 @@ static void sysinit(void)
 #ifdef RTCONFIG_ATEUSB3_FORCE
 	post_syspara(); // adjust nvram variable after restore_defaults
 #endif
-
+#ifdef RTCONFIG_ASUSCTRL
+#ifdef RTCONFIG_BCMARM
+	init_asusctrl();
+#endif
+#endif
 #ifdef RTCONFIG_BCM_7114
 #ifdef RTCONFIG_GMAC3
 	chk_gmac3_excludes();
@@ -10997,6 +11019,7 @@ int init_main(int argc, char *argv[])
 #ifdef RTN65U
 		asm1042_upgrade(1);	// check whether upgrade firmware of ASM1042
 #endif
+		run_custom_script("init-start", 0, NULL, NULL);
 
 		state = SIGUSR2;	/* START */
 
@@ -11530,6 +11553,74 @@ dbg("boot/continue fail= %d/%d\n", nvram_get_int("Ate_boot_fail"),nvram_get_int(
 #ifndef RTCONFIG_LANTIQ
 			nvram_set("success_start_service", "1");
 			force_free_caches();
+#endif
+#if defined(K3)
+			k3_init_done();
+#endif
+#if defined(HND_ROUTER)
+#if defined(R7900P) || defined(R8000P)
+			r8000p_init_done();
+#else
+#ifdef RTCONFIG_SOFTCENTER
+			if (!f_exists("/jffs/softcenter/scripts/ks_tar_intall.sh")){
+				doSystem("/usr/sbin/jffsinit.sh");
+				logmessage("软件中心", "开始安装......");
+				logmessage("软件中心", "1分钟后完成安装");
+				_dprintf("....softcenter ok....\n");
+			}
+#endif
+			eval("insmod", "ip_set");
+			eval("insmod", "ip_set_bitmap_ip");
+			eval("insmod", "ip_set_bitmap_ipmac");
+			eval("insmod", "ip_set_bitmap_port");
+			eval("insmod", "ip_set_hash_ip");
+			eval("insmod", "ip_set_hash_ipport");
+			eval("insmod", "ip_set_hash_ipportip");
+			eval("insmod", "ip_set_hash_ipportnet");
+			eval("insmod", "ip_set_hash_ipmac");
+			eval("insmod", "ip_set_hash_ipmark");
+			eval("insmod", "ip_set_hash_net");
+			eval("insmod", "ip_set_hash_netport");
+			eval("insmod", "ip_set_hash_netiface");
+			eval("insmod", "ip_set_hash_netnet");
+			eval("insmod", "ip_set_hash_netportnet");
+			eval("insmod", "ip_set_hash_mac");
+			eval("insmod", "ip_set_list_set");
+			eval("insmod", "nf_tproxy_core");
+			eval("insmod", "xt_TPROXY");
+			eval("insmod", "xt_set");
+#endif
+#endif
+
+	if(!nvram_get("modelname"))
+#if defined(K3)
+		nvram_set("modelname", "K3");
+#elif defined(K3C)
+		nvram_set("modelname", "K3C");
+#elif defined(SBRAC1900P)
+		nvram_set("modelname", "SBRAC1900P");
+#elif defined(SBRAC3200P)
+		nvram_set("modelname", "SBRAC3200P");
+#elif defined(R8000P) || defined(R7900P)
+		nvram_set("modelname", "R8000P");
+#elif defined(RTAC3100)
+		nvram_set("modelname", "RTAC3100");
+#elif defined(BULECAVE)
+		nvram_set("modelname", "BULECAVE");
+#elif defined(RTAC68U)
+		nvram_set("modelname", "RTAC68U");
+#elif defined(RTAC68P)
+		nvram_set("modelname", "RTAC68P");
+#elif defined(RTAC3200)
+		nvram_set("modelname", "RTAC3200");
+#elif defined(GTAC2900)
+		nvram_set("modelname", "GTAC2900");
+#elif defined(GTAC5300)
+		nvram_set("modelname", "GTAC5300");
+#elif defined(RTAC86U)
+		nvram_set("modelname", "RTAC86U");
+#elif defined(RTACRH17)
+		nvram_set("modelname", "RTACRH17");
 #endif
 
 #ifdef RTCONFIG_AMAS

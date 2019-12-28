@@ -156,7 +156,11 @@ static const struct itimerval zombie_tv = { {0,0}, {307, 0} };
 
 static const char dmhosts[] = "/etc/hosts.dnsmasq";
 static const char dmresolv[] = "/tmp/resolv.conf";
+#if defined(RTCONFIG_SMARTDNS)
+static const char dmservers[] = "/tmp/resolv.smartdns";
+#else
 static const char dmservers[] = "/tmp/resolv.dnsmasq";
+#endif
 
 #ifdef RTCONFIG_TOAD
 static void start_toads(void);
@@ -1197,7 +1201,11 @@ void start_dnsmasq(void)
 					    nvram_safe_get("lan_hostname"));
 			}
 		}
-
+#endif
+#if defined(RTCONFIG_SOFTCENTER)
+//anti dns hijacking
+		fprintf(fp, "121.40.153.145 wufan.softcenter.site\n");
+		fprintf(fp, "123.56.45.194 sc.softcenter.site\n");
 #endif
 		fclose(fp);
 	} else
@@ -1283,6 +1291,9 @@ void start_dnsmasq(void)
 	fprintf(fp, "pid-file=/var/run/dnsmasq.pid\n"
 		    "user=nobody\n"
 		    "bind-dynamic\n"		// listen only on interface & lo
+#if defined(RTCONFIG_SOFTCENTER)
+		    "conf-dir=/tmp/etc/dnsmasq.user\n"
+#endif
 		);
 
 #if defined(RTCONFIG_REDIRECT_DNAME)
@@ -1653,14 +1664,22 @@ void start_dnsmasq(void)
 	fprintf(fp, "script-arp\n");
 #endif
 #endif
-
+	append_custom_config("dnsmasq.conf", fp);
 	/* close fp move to the last */
 	fclose(fp);
-
+	use_custom_config("dnsmasq.conf", "/etc/dnsmasq.conf");
+	run_postconf("dnsmasq", "/etc/dnsmasq.conf");
+	chmod("/etc/dnsmasq.conf", 0644);
 	/* Create resolv.conf with empty nameserver list */
 	f_write(dmresolv, NULL, 0, FW_APPEND, 0666);
+#if defined(RTCONFIG_SMARTDNS)
 	/* Create resolv.dnsmasq with empty server list */
 	f_write(dmservers, NULL, 0, FW_APPEND, 0666);
+	f_write("/tmp/resolv.dnsmasq", NULL, 0, FW_APPEND, 0666);
+#else
+	/* Create resolv.dnsmasq with empty server list */
+	f_write(dmservers, NULL, 0, FW_APPEND, 0666);
+#endif
 
 #ifdef RTCONFIG_DNSPRIVACY
 	start_stubby();
@@ -1703,6 +1722,10 @@ int dnsmasq_script_main(int argc, char **argv)
 
 #if defined(RTCONFIG_AMAS)
 	amaslib_lease_main(argc, argv);
+#endif
+#if defined(RTCONFIG_SOFTCENTER)
+	if(nvram_get("sc_dhcp_script"))
+		doSystem("/jffs/softcenter/scripts/%s",nvram_get("sc_dhcp_script"));
 #endif
 	return 0;
 }
@@ -3383,7 +3406,12 @@ start_ddns(void)
 		service = "dyndns", asus_ddns=3;
 	else if (strcmp(server, "WWW.ORAY.COM")==0) {
 		service = "peanuthull", asus_ddns = 2;
-	} else {
+	} 
+	else if (strcmp(server, "WWW.3322.ORG")==0)
+		service = "qdns dynamic";
+    else if (strcmp(server, "CUSTOM")==0)
+                service = "";
+	else {
 		logmessage("start_ddns", "Error ddns server name: %s\n", server);
 		return 0;
 	}
@@ -3447,8 +3475,13 @@ start_ddns(void)
 		     "-u", usrstr, wild ? "-w" : "", "-e", "/sbin/ddns_updated",
 		     "-b", "/tmp/ddns.cache", NULL };
 		_eval(argv, NULL, 0, &pid);
-	}
+	} else {	// Custom DDNS
+		// Block until it completes and updates the DDNS update results in nvram
+		run_custom_script("ddns-start", 120, wan_ip, NULL);
+		return 0;
 
+	}
+	run_custom_script("ddns-start", 0, wan_ip, NULL);
 	return 0;
 }
 
@@ -4097,7 +4130,7 @@ start_acsd()
 	stop_acsd();
 
 	if (!restore_defaults_g && strlen(nvram_safe_get("acs_ifnames")))
-#if RTCONFIG_BCM_7114
+#ifdef RTCONFIG_BCM_7114
 		ret = _eval(acsd_argv, NULL, 0, &pid);
 #else
 		ret = eval("/usr/sbin/acsd");
@@ -4485,6 +4518,119 @@ stop_telnetd(void)
 	if (pids("telnetd"))
 		killall_tk("telnetd");
 }
+
+#if defined(RTCONFIG_SMARTDNS)
+void
+start_smartdns(void)
+{
+	FILE *fp;
+	char *smartdns_argv[] = { "smartdns", "-c", "/etc/smartdns.conf", "-p", "/tmp/smartdns.pid", "-f", NULL };
+	pid_t pid;
+	int unit;
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
+	char wan_dns_buf[INET6_ADDRSTRLEN*3 + 3];
+	char *wan_dns, *next;
+#ifdef RTCONFIG_DUALWAN
+	int primary_unit = wan_primary_ifunit();
+#endif
+	if (pids("smartdns"))
+		killall_tk("smartdns");
+	if (f_exists("/etc/smartdns.conf"))
+		unlink("/etc/smartdns.conf");
+	//doSystem("cp /rom/etc/smartdns.conf /etc/smartdns.conf");
+	//doSystem("echo server $(nvram get wan_dns1_x) >> /etc/smartdns.conf");
+	//doSystem("echo server $(nvram get wan_dns2_x) >> /etc/smartdns.conf");
+	if ((fp = fopen("/etc/smartdns.conf", "w")) == NULL){
+		logmessage(LOGNAME, "start smartdns failed\n");
+		return;
+	}
+	fprintf(fp, "server-name MerlinR-smartdns\n");
+	fprintf(fp, "conf-file /etc/blacklist-ip.conf\n");
+	fprintf(fp, "conf-file /etc/whitelist-ip.conf\n");
+	fprintf(fp, "bind [::]:9053\n");
+	//fprintf(fp, "bind-tcp [::]:5353\n");
+	fprintf(fp, "cache-size 9999\n");
+	//fprintf(fp, "prefetch-domain yes\n");
+	//fprintf(fp, "bogus-nxdomain 1.0.0.0/16\n");
+	//fprintf(fp, "blacklist-ip 1.0.0.0/16\n");
+	//fprintf(fp, "whitelist-ip 1.0.0.0/16\n");
+	//fprintf(fp, "ignore-ip 1.0.0.0/16\n");
+	//fprintf(fp, "force-AAAA-SOA yes\n");
+	//fprintf(fp, "dualstack-ip-selection yes\n");
+	//fprintf(fp, "edns-client-subnet 1.0.0.0/16\n");
+	//fprintf(fp, "rr-ttl 300\n");
+	//fprintf(fp, "rr-ttl-min 60\n");
+	//fprintf(fp, "rr-ttl-max 86400\n");
+	fprintf(fp, "log-level info\n");
+	//fprintf(fp, "log-file /var/log/smartdns.log\n");
+	//fprintf(fp, "log-size 128k\n");
+	//fprintf(fp, "log-num 2\n");
+	fprintf(fp, "server 114.114.114.114\n");
+	fprintf(fp, "server 119.29.29.29\n");
+	fprintf(fp, "server 223.5.5.5\n");
+	for (unit = WAN_UNIT_FIRST; unit < WAN_UNIT_MAX; unit++) {
+		char *wan_xdns;
+		char wan_xdns_buf[sizeof("255.255.255.255 ")*2];
+#ifdef RTCONFIG_DUALWAN
+		if (unit != primary_unit && nvram_invmatch("wans_mode", "lb"))
+			continue;
+#endif
+		//if (!is_phy_connect(unit))
+			//continue;
+		snprintf(prefix, sizeof(prefix), "wan%d_", unit);
+		wan_dns = nvram_safe_get_r(strcat_r(prefix, "dns", tmp), wan_dns_buf, sizeof(wan_dns_buf));
+		wan_xdns = nvram_safe_get_r(strcat_r(prefix, "xdns", tmp), wan_xdns_buf, sizeof(wan_xdns_buf));
+		if (!*wan_dns && !*wan_xdns)
+			continue;
+		foreach(tmp, (*wan_dns ? wan_dns : wan_xdns), next)
+			fprintf(fp, "server %s\n", tmp);
+	}
+	//fprintf(fp, "server %s\n", nvram_get("wan_dns1_x"));
+	//fprintf(fp, "server %s\n", nvram_get("wan_dns2_x"));
+	fprintf(fp, "server-tcp 8.8.8.8\n");
+	fprintf(fp, "server-tcp 8.8.4.4\n");
+	//fprintf(fp, "server-https https://cloudflare-dns.com/dns-query\n");
+	fclose(fp);
+	//logmessage(LOGNAME, "start smartdns:%d", pid);
+	_eval(smartdns_argv, NULL, 0, &pid);
+}
+
+void
+stop_smartdns(void)
+{
+	if (pids("smartdns"))
+		killall_tk("smartdns");
+}
+#endif
+
+#ifdef RTCONFIG_SOFTCENTER
+void
+start_skipd(void)
+{
+	char *skipd_argv[] = { "skipd", NULL };
+	pid_t pid;
+	if (getpid() != 1) {
+		notify_rc("start_skipd");
+		return;
+	}
+	if (pids("skipd"))
+		killall_tk("skipd");
+	logmessage(LOGNAME, "start skipd");
+	_eval(skipd_argv, NULL, 0, &pid);
+
+}
+
+void
+stop_skipd(void)
+{
+	if (getpid() != 1) {
+		notify_rc("stop_skipd");
+		return;
+	}
+	if (pids("skipd"))
+		killall_tk("skipd");
+}
+#endif
 
 void
 start_httpd(void)
@@ -8050,6 +8196,9 @@ start_aura_rgb_sw(void)
 int
 start_services(void)
 {
+#ifdef RTCONFIG_SOFTCENTER
+	start_skipd();
+#endif
 #ifdef RTCONFIG_LANTIQ
 	start_wave_monitor();
 #endif
@@ -8123,6 +8272,9 @@ start_services(void)
 #endif /* __CONFIG_WBD__ */
 
 #endif	// RTCONFIG_BCMWL6
+#if defined(RTCONFIG_SMARTDNS)
+	start_smartdns();
+#endif
 	start_dnsmasq();
 #ifdef RTCONFIG_DHCP_OVERRIDE
 	start_detectWAN_arp();
@@ -8161,6 +8313,7 @@ start_services(void)
 	start_aura_rgb_sw();
 #endif
 	start_watchdog();
+	start_check_watchdog();
 #ifdef RTAC87U
 	start_watchdog02();
 #endif
@@ -8374,12 +8527,21 @@ start_services(void)
 #ifdef RTCONFIG_FPROBE
 	start_fprobe();
 #endif
+#if defined(K3C)
+	doSystem("/usr/sbin/k3c-init.sh");
+#endif
+	run_custom_script("services-start", 0, NULL, NULL);
+
 	return 0;
 }
 
 void
 stop_services(void)
 {
+	run_custom_script("services-stop", 0, NULL, NULL);
+#ifdef RTCONFIG_SOFTCENTER
+	stop_skipd();
+#endif
 #ifdef RTCONFIG_FPROBE
 	stop_fprobe();
 #endif
@@ -8453,6 +8615,7 @@ stop_services(void)
 	stop_eth_obd();
 #endif
 #endif
+	stop_check_watchdog();
 	stop_watchdog();
 #ifdef RTCONFIG_FANCTRL
 	stop_phy_tempsense();
@@ -8911,6 +9074,12 @@ stop_watchdog(void)
 	killall_tk("watchdog");
 }
 
+void
+stop_check_watchdog(void)
+{
+	killall_tk("check_watchdog");
+}
+
 #if ! (defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK))
 void
 stop_watchdog02(void)
@@ -8960,6 +9129,15 @@ start_watchdog(void)
 	pid_t whpid;
 
 	return _eval(watchdog_argv, NULL, 0, &whpid);
+}
+
+int
+start_check_watchdog(void)
+{
+	char *check_watchdog_argv[] = {"check_watchdog", NULL};
+	pid_t pid;
+
+	return _eval(check_watchdog_argv, NULL, 0, &pid);
 }
 
 #ifdef RTAC87U
@@ -9658,7 +9836,7 @@ static int select_upgrade_fw_order(char *fwpart[2])
 void handle_notifications(void)
 {
 	char nv[256], nvtmp[32], *cmd[8], *script;
-	char *nvp, *b, *nvptr;
+	char *nvp, *b, *nvptr, *actionstr;
 	int action = 0;
 	int count;
 	int i;
@@ -9699,21 +9877,26 @@ again:
 	if(strncmp(cmd[0], "start_", 6)==0) {
 		action |= RC_SERVICE_START;
 		script = &cmd[0][6];
+		actionstr = "start";
 	}
 	else if(strncmp(cmd[0], "stop_", 5)==0) {
 		action |= RC_SERVICE_STOP;
 		script = &cmd[0][5];
+		actionstr = "stop";
 	}
 	else if(strncmp(cmd[0], "restart_", 8)==0) {
 		action |= (RC_SERVICE_START | RC_SERVICE_STOP);
 		script = &cmd[0][8];
+		actionstr = "restart";
 	}
 	else {
 		action = 0;
 		script = cmd[0];
+		actionstr = "";
 	}
 
 	TRACE_PT("running: %d %s\n", action, script);
+	run_custom_script("service-event", 120, actionstr, script);
 
 #ifdef RTCONFIG_USB_MODEM
 	if(!strcmp(script, "simauth")
@@ -10117,6 +10300,15 @@ again:
 		}
 	}
 	else if(strcmp(script, "upgrade") == 0) {
+//we must make sure that usb can umount and do not start skipd again
+#if defined(RTCONFIG_SOFTCENTER)
+#if defined(RTCONFIG_LANTIQ)
+	if(nvram_get_int("k3c_enable"))
+		doSystem("/usr/sbin/plugin.sh stop");
+#elif defined(RTCONFIG_BCMARM) || defined(HND_ROUTER) || defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK)
+	doSystem("/usr/sbin/plugin.sh stop");
+#endif
+#endif
 		int stop_commit;
 		stop_commit = nvram_get_int(ASUS_STOP_COMMIT);
 		if(stop_commit == 0) {
@@ -10375,12 +10567,14 @@ again:
 	}
 	else if(strcmp(script, "wltest") == 0) {
 		nvram_set("asus_mfg", "3");
+		stop_check_watchdog();
 		stop_watchdog();
 		stop_infosvr();
 		stop_services_mfg();
 	}
 	else if(strcmp(script, "ethtest") == 0) {
 		nvram_set("asus_mfg", "3");
+		stop_check_watchdog();
 		stop_watchdog();
 		stop_infosvr();
 		stop_services_mfg();
@@ -10441,6 +10635,9 @@ script_allnet:
 			stop_sshd();
 #endif
 			stop_dnsmasq();
+#if defined(RTCONFIG_SMARTDNS)
+			stop_smartdns();
+#endif
 #if defined(RTCONFIG_MDNS)
 			stop_mdns();
 #endif
@@ -10550,6 +10747,9 @@ script_allnet:
 #endif
 #if defined(RTCONFIG_RALINK) && defined(RTCONFIG_WLMODULE_MT7615E_AP)
 			start_wds_ra();
+#endif
+#if defined(RTCONFIG_SMARTDNS)
+			start_smartdns();
 #endif
 			start_dnsmasq();
 #if defined(RTCONFIG_MDNS)
@@ -10673,6 +10873,9 @@ script_allnet:
 			stop_sshd();
 #endif
 			stop_dnsmasq();
+#if defined(RTCONFIG_SMARTDNS)
+			stop_smartdns();
+#endif
 #if defined(RTCONFIG_MDNS)
 			stop_mdns();
 #endif
@@ -10747,6 +10950,9 @@ script_allnet:
 #endif
 #if defined(RTCONFIG_RALINK) && defined(RTCONFIG_WLMODULE_MT7615E_AP)
 			start_wds_ra();
+#endif
+#if defined(RTCONFIG_SMARTDNS)
+			start_smartdns();
 #endif
 			start_dnsmasq();
 #if defined(RTCONFIG_MDNS)
@@ -10894,6 +11100,9 @@ script_allnet:
 			stop_detectWAN_arp();
 #endif
 			stop_dnsmasq();
+#if defined(RTCONFIG_SMARTDNS)
+			stop_smartdns();
+#endif
 #if defined(RTCONFIG_MDNS)
 			stop_mdns();
 #endif
@@ -10987,6 +11196,9 @@ script_allnet:
 #ifdef CONFIG_BCMWL5
 			start_wl();
 			lanaccess_wl();
+#endif
+#if defined(RTCONFIG_SMARTDNS)
+			start_smartdns();
 #endif
 			start_dnsmasq();
 #ifdef RTCONFIG_DHCP_OVERRIDE
@@ -11361,6 +11573,7 @@ _dprintf("multipath(%s): unit_now: (%d, %d, %s), unit_next: (%d, %d, %s).\n", mo
 #endif
 
 		}
+		reset_leds();
 		nvram_set("restart_wifi", "0");
 	}
 #if defined(RTCONFIG_POWER_SAVE)
@@ -12472,6 +12685,13 @@ check_ddr_done:
 		if(action & RC_SERVICE_START) start_stubby();
 	}
 #endif
+#ifdef RTCONFIG_SOFTCENTER
+	else if (strcmp(script, "skipd") == 0)
+	{
+		if(action & RC_SERVICE_STOP) stop_skipd();
+		if(action & RC_SERVICE_START) start_skipd();
+	}
+#endif
 #ifdef RTCONFIG_DHCP_OVERRIDE
 	else if (strcmp(script, "dhcpd") == 0)
 	{
@@ -13174,6 +13394,9 @@ retry_wps_enr:
 		_dprintf("%s: shell: %s\n", __FUNCTION__, cmd[1]);
 		if(cmd[1]) system(cmd[1]);
 	}
+	else if (strcmp(script, "leds") == 0) {
+		reset_leds();
+	}
 	else if (strcmp(script, "app") == 0) {
 #if defined(RTCONFIG_APP_PREINSTALLED) || defined(RTCONFIG_APP_NETINSTALLED)
 		if(action & RC_SERVICE_STOP)
@@ -13682,6 +13905,11 @@ _dprintf("test 2. turn off the USB power during %d seconds.\n", reset_seconds[re
 		if(action & RC_SERVICE_START) start_qca_lbd();
 	}
 #endif
+	else if (strcmp(script, "watchdog") == 0)
+	{
+		if (action & RC_SERVICE_STOP) stop_watchdog();
+		if (action & RC_SERVICE_START) start_watchdog();
+	}
 	else
 	{
 		fprintf(stderr,
@@ -13706,7 +13934,7 @@ _dprintf("goto again(%d)...\n", getpid());
 		unsetenv("unit");
 	}
 #endif
-
+	run_custom_script("service-event-end", 0, actionstr, script);
 	nvram_set("rc_service", "");
 	nvram_set("rc_service_pid", "");
 _dprintf("handle_notifications() end\n");
@@ -14311,6 +14539,7 @@ _dprintf("nat_rule: the nat rule file was not ready. wait %d seconds...\n", retr
 	setup_ct_timeout(TRUE);
 	setup_udp_timeout(TRUE);
 
+	run_custom_script("nat-start", 0, NULL, NULL);
 	return NAT_STATE_NORMAL;
 }
 
@@ -14596,7 +14825,10 @@ rsasign_check_main(int argc, char *argv[])
 		return -1;
 
 	_dprintf("rsa fw: %s\n", argv[1]);
-
+#if defined(MERLINR_VER_MAJOR_R) || defined(MERLINR_VER_MAJOR_B)
+	_dprintf("rsasign check FW OK\n");
+	nvram_set("rsasign_check", "1");
+#else
 	if(check_rsasign(argv[1])) {
 		_dprintf("rsasign check FW OK\n");
 		nvram_set("rsasign_check", "1");
@@ -14605,6 +14837,7 @@ rsasign_check_main(int argc, char *argv[])
 		_dprintf("rsasign check FW Fail\n");
 		nvram_set("rsasign_check", "0");
 	}
+#endif
 	return 0;
 }
 
@@ -15043,6 +15276,110 @@ int service_main(int argc, char *argv[])
 	if (argc != 2) usage_exit(argv[0], "<action_service>");
 	notify_rc(argv[1]);
 	printf("\nDone.\n");
+	return 0;
+}
+
+void reset_leds()
+{
+	int model;
+
+	model = get_model();
+
+	if (nvram_get_int("led_disable") == 1) {
+		if ((model == MODEL_RTAC56U) || (model == MODEL_RTAC56S) ||
+		    (model == MODEL_RTAC68U) || (model == MODEL_RTAC87U) ||
+		    (model == MODEL_RTAC3200) || (model == MODEL_RTAC88U) ||
+		    (model == MODEL_RTAC3100) || (model == MODEL_RTAC5300) ||
+#if defined(GTAC5300) || defined(GTAC2900)
+			(model == MODEL_GTAC5300) || 
+#endif
+		    (model == MODEL_RTAC86U)) {
+			setAllLedOff();
+			if (model == MODEL_RTAC87U)
+				led_control_atomic(LED_5G, LED_OFF);
+		} else {        // TODO: Can other routers also use the same code?
+			led_control_atomic(LED_2G, LED_OFF);
+			led_control_atomic(LED_5G, LED_OFF);
+			led_control_atomic(LED_POWER, LED_OFF);
+			led_control_atomic(LED_SWITCH, LED_OFF);
+#if !defined(GTAC5300) && !defined(GTAC2900)
+			led_control_atomic(LED_LAN, LED_OFF);
+#endif
+			led_control_atomic(LED_WAN, LED_OFF);
+		}
+#ifdef RTCONFIG_USB
+		stop_usbled();
+		led_control_atomic(LED_USB, LED_OFF);
+#endif
+
+	} else {
+#ifdef RTCONFIG_USB
+		start_usbled();
+#endif
+#ifdef RTCONFIG_LED_ALL
+		led_control_atomic(LED_ALL, LED_ON);
+#endif
+
+/* LAN */
+#if defined(HND_ROUTER) && defined(RTCONFIG_LAN4WAN_LED)
+		setLANLedOn();
+#endif
+
+/* WAN */
+#if defined(RTAC3200) || defined(RTCONFIG_BCM_7114) || defined(HND_ROUTER)
+#ifndef HND_ROUTER
+		eval("et", "-i", "eth0", "robowr", "0", "0x18", "0x01ff");
+		eval("et", "-i", "eth0", "robowr", "0", "0x1a", "0x01ff");
+#else
+		led_control(LED_WAN_NORMAL, LED_ON);
+#endif
+#else
+		eval("et", "robowr", "0", "0x18", "0x01ff");
+		eval("et", "robowr", "0", "0x1a", "0x01ff");
+#endif
+
+/* Wifi */
+		if (nvram_match("wl1_radio", "1")
+#if defined(RTAC3200) || defined(RTAC5300)
+		    || nvram_match("wl2_radio", "1")
+#endif
+		   ) {
+			led_control_atomic(LED_5G_FORCED, LED_ON);
+		}
+		if (nvram_match("wl0_radio", "1")) {
+			led_control_atomic(LED_2G, LED_ON);
+		}
+#ifdef RTCONFIG_QTN
+		setAllLedOn_qtn();
+#endif
+		led_control_atomic(LED_SWITCH, LED_ON);
+		led_control_atomic(LED_POWER, LED_ON);
+
+#if defined(RTAC3200) || defined(RTAC88U) || defined(RTAC3100) || defined(RTAC5300)
+		kill_pidfile_s("/var/run/wanduck.pid", SIGUSR2);
+#endif
+	}
+}
+
+// Takes one argument:  0 = update failure
+//                      1 (or missing argument) = update success
+int
+ddns_custom_updated_main(int argc, char *argv[])
+{
+	if ((argc == 2 && !strcmp(argv[1], "1")) || (argc == 1)) {
+		nvram_set("ddns_status", "1");
+		nvram_set("ddns_updated", "1");
+		nvram_set("ddns_return_code", "200");
+		nvram_set("ddns_return_code_chk", "200");
+		nvram_set("ddns_server_x_old", nvram_safe_get("ddns_server_x"));
+		nvram_set("ddns_hostname_old", nvram_safe_get("ddns_hostname_x"));
+		logmessage("ddns", "Completed custom ddns update");
+	} else {
+		nvram_set("ddns_return_code", "unknown_error");
+		nvram_set("ddns_return_code_chk", "unknown_error");
+		logmessage("ddns", "Custom ddns update failed");
+	}
+
 	return 0;
 }
 
@@ -16603,6 +16940,20 @@ void reset_led(void)
 	if(brightness_level < 0 || brightness_level > 3)
 		brightness_level = 2;
 	setCentralLedLv(brightness_level);
+#if defined(K3C)
+	if (nvram_get_int("bc_ledLv") == 0)
+	{
+		led_control(LED_INDICATOR_SIG1, LED_OFF); 
+		led_control(LED_INDICATOR_SIG3, LED_OFF);
+		led_control(LED_INDICATOR_SIG2, LED_OFF);
+	}
+	else if(nvram_get_int("link_internet") == 2){
+		led_control(LED_INDICATOR_SIG2, LED_ON);
+	}
+	else {
+		led_control(LED_INDICATOR_SIG3, LED_ON);
+	}
+#endif
 }
 #endif
 
@@ -16885,3 +17236,4 @@ void PS_pod_main(void)
 	return;
 }
 #endif
+

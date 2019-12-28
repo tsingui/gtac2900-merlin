@@ -1,4 +1,4 @@
-﻿/* menuTree_ROG.js */
+/* menuTree_ROG.js */
 define(function(){
 	var menuTree = {
 		list: [
@@ -227,6 +227,14 @@ define(function(){
 				] 
 			},
 			{
+				menuName: "<#Softcenter_tool#>",
+				index: "menu_Tools",
+				tab: [
+					{url: "Tools_Sysinfo.asp", tabName: "Sysinfo"},
+					{url: "NULL", tabName: "__INHERIT__"}
+				] 
+			},
+			{
 				menuName: "Alexa & IFTTT",
 				index: "menu_Alexa_IFTTT",
 				tab: [
@@ -297,6 +305,22 @@ define(function(){
 					{url: "Main_Netstat_Content.asp", tabName: "Netstat"},
 					{url: "Main_WOL_Content.asp", tabName: "<#NetworkTools_WOL#>"},
 					{url: "Advanced_Smart_Connect.asp", tabName: "<#smart_connect_rule#>"},
+					{url: "NULL", tabName: "__INHERIT__"}
+				]
+			},
+			{
+				menuName: "<#Softcenter#>",
+				index: "menu_Split",
+				tab: [
+					{url: "NULL", tabName: "__HIDE__"}
+				]
+			},
+			{
+				menuName: "<#Softcenter#>",
+				index: "menu_Softcenter",
+				tab: [
+					{url: "Main_Soft_center.asp", tabName: "<#Softcenter#>"},
+					{url: "Main_Soft_setting.asp", tabName: "ManualInstall"},
 					{url: "NULL", tabName: "__INHERIT__"}
 				]
 			}
@@ -714,3 +738,4 @@ define(function(){
 
 	return menuTree;
 });
+
