@@ -1586,6 +1586,10 @@ extern int dnsmasq_script_main(int argc, char **argv);
 extern void start_stubby(void);
 extern void stop_stubby(void);
 #endif
+#if defined(RTCONFIG_SMARTDNS)
+extern void start_smartdns();
+#endif
+extern void setup_leds();
 extern int ddns_updated_main(int argc, char *argv[]);
 #ifdef RTCONFIG_IPV6
 extern void add_ip6_lanaddr(void);

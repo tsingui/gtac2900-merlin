@@ -26,15 +26,130 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include "merlinr.h"
 #include "rc.h"
 #include <shared.h>
 #include <shutils.h>
 #if defined(RTCONFIG_LANTIQ)
 #include <lantiq.h>
 #endif
-
+#include "merlinr.h"
 #include <curl/curl.h>
+
+
+void merlinr_insmod(){
+	eval("insmod", "nfnetlink");
+	eval("insmod", "ip_set");
+	eval("insmod", "ip_set_bitmap_ip");
+	eval("insmod", "ip_set_bitmap_ipmac");
+	eval("insmod", "ip_set_bitmap_port");
+	eval("insmod", "ip_set_hash_ip");
+	eval("insmod", "ip_set_hash_ipport");
+	eval("insmod", "ip_set_hash_ipportip");
+	eval("insmod", "ip_set_hash_ipportnet");
+	eval("insmod", "ip_set_hash_ipmac");
+	eval("insmod", "ip_set_hash_ipmark");
+	eval("insmod", "ip_set_hash_net");
+	eval("insmod", "ip_set_hash_netport");
+	eval("insmod", "ip_set_hash_netiface");
+	eval("insmod", "ip_set_hash_netnet");
+	eval("insmod", "ip_set_hash_netportnet");
+	eval("insmod", "ip_set_hash_mac");
+	eval("insmod", "ip_set_list_set");
+	eval("insmod", "nf_tproxy_core");
+	eval("insmod", "xt_TPROXY");
+	eval("insmod", "xt_set");
+}
+
+void merlinr_init()
+{
+	_dprintf("############################ MerlinR init #################################\n");
+#if defined(RTCONFIG_SOFTCENTER)
+	nvram_set("sc_wan_sig", "0");
+	nvram_set("sc_nat_sig", "0");
+	nvram_set("sc_mount_sig", "0");
+#endif
+	merlinr_insmod();
+}
+void merlinr_init_done()
+{
+	_dprintf("############################ MerlinR init done #################################\n");
+#ifdef RTCONFIG_SOFTCENTER
+	if (!f_exists("/jffs/softcenter/scripts/ks_tar_intall.sh") && nvram_match("sc_mount","0")){
+		doSystem("/usr/sbin/jffsinit.sh &");
+		logmessage("软件中心", "开始安装......");
+		logmessage("软件中心", "1分钟后完成安装");
+		_dprintf("....softcenter ok....\n");
+	} else if (f_exists("/jffs/softcenter/scripts/ks_tar_intall.sh") && nvram_match("sc_mount","0"))
+		nvram_set("sc_installed","1");
+	if(f_exists("/jffs/.asusrouter")){
+		unlink("/jffs/.asusrouter");
+		doSystem("sed -i '/softcenter-wan.sh/d' /jffs/scripts/wan-start");
+		doSystem("sed -i '/softcenter-net.sh/d' /jffs/scripts/nat-start");
+		doSystem("sed -i '/softcenter-mount.sh/d' /jffs/scripts/post-mount");
+
+	}
+#endif
+#if defined(RTCONFIG_QCA)
+	if(!nvram_get("bl_ver"))
+		nvram_set("bl_ver", "1.0.0.0");
+#endif
+	if(!nvram_get("modelname"))
+#if defined(K3)
+		nvram_set("modelname", "K3");
+#elif defined(K3C)
+		nvram_set("modelname", "K3C");
+#elif defined(SBRAC1900P)
+		nvram_set("modelname", "SBRAC1900P");
+#elif defined(SBRAC3200P)
+		nvram_set("modelname", "SBRAC3200P");
+#elif defined(R8000P) || defined(R7900P)
+		nvram_set("modelname", "R8000P");
+#elif defined(RTAC3100)
+		nvram_set("modelname", "RTAC3100");
+#elif defined(BULECAVE)
+		nvram_set("modelname", "BULECAVE");
+#elif defined(RTAC68U)
+		nvram_set("modelname", "RTAC68U");
+#elif defined(RTAC68P)
+		nvram_set("modelname", "RTAC68P");
+#elif defined(RTAC3200)
+		nvram_set("modelname", "RTAC3200");
+#elif defined(GTAC2900)
+		nvram_set("modelname", "GTAC2900");
+#elif defined(GTAC5300)
+		nvram_set("modelname", "GTAC5300");
+#elif defined(RTAC86U)
+		nvram_set("modelname", "RTAC86U");
+#elif defined(RTACRH17)
+		nvram_set("modelname", "RTACRH17");
+#elif defined(TUFAX3000) || defined(RTAX58U)
+		nvram_set("modelname", "TUFAX3000");
+#elif defined(RTAX56U)
+		nvram_set("modelname", "RTAX56U");
+#elif defined(RTAX88U)
+		nvram_set("modelname", "RTAX88U");
+#elif defined(GTAX11000)
+		nvram_set("modelname", "GTAX11000");
+#elif defined(RAX20)
+		nvram_set("modelname", "RAX20");
+#elif defined(RAX80)
+		nvram_set("modelname", "RAX80");
+#elif defined(RAX200)
+		nvram_set("modelname", "RAX200");
+#elif defined(TUFAC1750)
+		nvram_set("modelname", "TUFAC1750");
+#elif defined(RTACRH26)
+		nvram_set("modelname", "RTACRH26");
+#elif defined(RTAC85P)
+		nvram_set("modelname", "RTAC85P");
+#endif
+#if defined(R8000P) || defined(R7900P)
+	nvram_set("ping_target","www.taobao.com");
+	nvram_commit();
+#endif
+}
+
+
 
 #define FWUPDATE_DBG(fmt,args...) \
         if(1) { \
@@ -221,8 +336,6 @@ int merlinr_firmware_check_update_main(int argc, char *argv[])
 	nvram_set("webs_state_error", "0");
 	nvram_set("webs_state_odm", "0");
 	nvram_set("webs_state_url", "");
-	nvram_set("cfg_check", "0");
-	nvram_set("cfg_upgrade", "0");
 	unlink("/tmp/webs_upgrade.log");
 	unlink("/tmp/wlan_update.txt");
 	unlink("/tmp/release_note0.txt");
@@ -263,10 +376,7 @@ int merlinr_firmware_check_update_main(int argc, char *argv[])
 						nvram_set("webs_state_REQinfo", info);
 						nvram_set("webs_state_flag", "1");
 						nvram_set("webs_state_update", "1");
-#ifdef RTCONFIG_AMAS
-//						nvram_set("cfg_check", "9");
-//						nvram_set("cfg_upgrade", "0");
-#endif
+
 						memset(url,'\0',sizeof(url));
 						memset(log,'\0',sizeof(log));
 						char releasenote_file[100];
@@ -285,8 +395,6 @@ int merlinr_firmware_check_update_main(int argc, char *argv[])
 							FWUPDATE_DBG("---- download real release note %s/%s ----", serverurl, releasenote_file);
 							curl_download_file(curlhandle , url,releasenote,8,3);
 						}
-						curl_easy_cleanup(curlhandle);
-						curl_global_cleanup();
 						FWUPDATE_DBG("---- firmware check update finish ----");
 						return 0;
 #if 0
@@ -327,8 +435,8 @@ GODONE:
 	FWUPDATE_DBG("---- firmware check update finish ----");
 	return 0;
 }
-#if !defined(GTAC2900)
-void exec_uu()
+
+void exec_uu_merlinr()
 {
 	FILE *fpmodel, *fpmac, *fpuu, *fpurl, *fpmd5, *fpcfg;
 	char buf[128];
@@ -414,10 +522,32 @@ void exec_uu()
 		}
 	}
 }
-#endif
 #if !defined(RTAC68U) && !defined(GTAC5300) && !defined(GTAC2900) && !defined(RTAC86U)
 void start_sendfeedback(void)
 {
 
+}
+#endif
+#if defined(RTCONFIG_SOFTCENTER)
+void softcenter_eval(int sig)
+{
+	//1=wan,2=nat,3=mount
+	pid_t pid;
+	char path[100], action[10], sc[]="/jffs/softcenter/bin";
+	if(SOFTCENTER_WAN == sig){
+		snprintf(path, sizeof(path), "%s/softcenter-wan.sh", sc);
+		snprintf(action, sizeof(action), "start");
+	} else if (SOFTCENTER_NAT == sig){
+		snprintf(path, sizeof(path), "%s/softcenter-net.sh", sc);
+		snprintf(action, sizeof(action), "start_nat");
+	} else if (SOFTCENTER_MOUNT == sig){
+		snprintf(path, sizeof(path), "%s/softcenter-mount.sh", sc);
+		snprintf(action, sizeof(action), "start");
+	} else {
+		logmessage("Softcenter", "sig=%s, bug?",sig);
+		return;
+	}
+	char *eval_argv[] = { path, action, NULL };
+	_eval(eval_argv, NULL, 0, &pid);
 }
 #endif
