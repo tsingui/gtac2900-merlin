@@ -31,6 +31,7 @@
 #include <dmalloc.h>
 #endif
 #include <rtconfig.h>
+#include "merlinr.h"
 
 /* DEBUG DEFINE */
 #define HTTPD_DEBUG             "/tmp/HTTPD_DEBUG"
@@ -121,7 +122,7 @@ struct iptv_profile {
 };
 
 #ifdef RTCONFIG_ODMPID
-struct REPLACE_ODMPID_S {
+struct REPLACE_PRODUCTID_S {
         char *org_name;
         char *replace_name;
 };
@@ -456,3 +457,4 @@ extern void do_feedback_mail_cgi(char *url, FILE *stream);
 extern void do_dfb_log_file(char *url, FILE *stream);
 extern int is_amas_support(void);
 #endif /* _httpd_h_ */
+

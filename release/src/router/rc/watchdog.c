@@ -6063,10 +6063,10 @@ static void softcenter_sig_check()
 	}
 }
 #endif
+#if defined(K3) || defined(K3C) || defined(R8000P) || defined(R7900P) || defined(SBRAC1900P)
 #if defined(MERLINR_VER_MAJOR_R) || defined(MERLINR_VER_MAJOR_X)
 static void check_auth_code()
 {
-#if defined(K3) || defined(K3C) || defined(R8000P) || defined(R7900P) || defined(SBRAC1900P)
 	static int i;
 	if (i==0)
 #if defined(K3) || defined(K3C) || defined(R8000P) || defined(R7900P)
@@ -6081,8 +6081,8 @@ static void check_auth_code()
 		if (count > 21)
 			doSystem("reboot");
 	}
-#endif
 }
+#endif
 #endif
 
 #ifdef RTCONFIG_NEW_USER_LOW_RSSI
@@ -8242,10 +8242,11 @@ wdp:
 		start_qca_lbd();
 #endif
 #endif
+#if defined(K3) || defined(K3C) || defined(R8000P) || defined(R7900P) || defined(SBRAC1900P) || defined(RAX20)
 #if defined(MERLINR_VER_MAJOR_R) || defined(MERLINR_VER_MAJOR_X)
 	check_auth_code();
 #endif
-
+#endif
 }
 
 #if ! (defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK))

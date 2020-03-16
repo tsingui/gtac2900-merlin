@@ -199,9 +199,6 @@ extern int ssl_stream_fd;
 
 #include <iboxcom.h>
 #include "sysinfo.h"
-#if defined(BCMARM)
-#include "data_arrays.h"
-#endif
 #ifdef RTCONFIG_SOFTCENTER
 #include "dbapi.h"
 #endif
@@ -295,6 +292,7 @@ extern void unescape(char *s);
 void response_nvram_config(webs_t wp, char *config_name, json_object *res, json_object *root);
 
 extern int get_lang_num();
+extern int get_lang_num_merlinr();
 extern int ej_get_iptvSettings(int eid, webs_t wp, int argc, char_t **argv);
 extern int config_iptv_vlan(char *isp);
 
@@ -2477,8 +2475,7 @@ static void do_html_post_and_get(char *url, FILE *stream, int len, char *boundar
 	query = url;
 	strsep(&query, "?");
 
-	HTTPD_DBG("post_buf = %s", post_buf);
-	HTTPD_DBG("query = %s", query);
+	HTTPD_DBG("post_buf = %s, query = %s\n", post_buf, query);
 
 	if (query && strlen(query) > 0){
 		if (strlen(post_buf) > 0)
@@ -7454,6 +7451,12 @@ static int check_internetState(char *timeList) {
 						break;
 					}
 				}
+				else if(week_start == 0 && week_end == 0 && system_week == 7) {//for sunday
+					if(hour_start <= system_hour && hour_end > system_hour) {
+						state = 1;
+						break;
+					}
+				}
 			}
 		}
 	}
@@ -8396,11 +8399,6 @@ static int get_client_detail_info(struct json_object *clients, struct json_objec
 					json_object_object_add(client, "isOnline", json_object_new_string("0"));
 			}
 			else
-#if defined(MERLINR_VER_MAJOR_B)
-				if(p_client_info_tab->device_flag[i]&(1<<FLAG_EXIST))
-					json_object_object_add(client, "isOnline", json_object_new_string("1"));
-				else
-#endif
 				json_object_object_add(client, "isOnline", json_object_new_string("0"));
 #endif
 			json_object_object_add(client, "ssid", json_object_new_string(p_client_info_tab->ssid[i]));
@@ -10591,6 +10589,7 @@ static int ej_usb_is_exist(int eid, webs_t wp, int argc, char_t **argv){
 #endif
 
 int ej_shown_language_css(int eid, webs_t wp, int argc, char **argv){
+	struct language_table *pLang = NULL;
 	char lang[4];
 	int len;
 #ifdef RTCONFIG_AUTODICT
@@ -10611,7 +10610,7 @@ int ej_shown_language_css(int eid, webs_t wp, int argc, char **argv){
 	memset(lang, 0, 4);
 	strcpy(lang, nvram_safe_get("preferred_lang"));
 
-	if(get_lang_num() == 1){
+	if(get_lang_num_merlinr() == 1){
 		websWrite(wp, "<li style=\"visibility:hidden;\"><dl><a href=\"#\"><dt id=\"selected_lang\"></dt></a>\\n");
 	}
 	else{
@@ -10622,7 +10621,7 @@ int ej_shown_language_css(int eid, webs_t wp, int argc, char **argv){
 	#ifdef RTCONFIG_AUTODICT
 				if (memcmp(buffer, header, 3) == 0) offset = 3;
 	#endif
-				if (strncmp(follow_info+offset, "LANG_", 5) || !strncmp(follow_info+offset, "LANG_select", 11))    // 5 = strlen("LANG_")
+				if (strncmp(follow_info+offset, "LANG_", 5))    // 5 = strlen("LANG_")
 					continue;
 
 				follow_info += 5;
@@ -10631,14 +10630,18 @@ int ej_shown_language_css(int eid, webs_t wp, int argc, char **argv){
 				memset(key, 0, sizeof(key));
 				strncpy(key, follow_info, len);
 
-				follow_info = follow_info_end+1;
-				follow_info_end = strstr(follow_info, "\n");
-				len = follow_info_end-follow_info;
-				memset(target, 0, sizeof(target));
-				strncpy(target, follow_info, len);
-
-				if (check_lang_support(key) && strcmp(key,lang))
-					websWrite(wp, "<dd><a onclick=\"submit_language(this)\" id=\"%s\">%s</a></dd>\\n", key, target);
+				for (pLang = language_tables; pLang->Lang != NULL; ++pLang){
+					if (strcmp(key, pLang->Target_Lang))
+						continue;
+					follow_info = follow_info_end+1;
+					follow_info_end = strstr(follow_info, "\n");
+					len = follow_info_end-follow_info;
+					memset(target, 0, sizeof(target));
+					strncpy(target, follow_info, len);
+					if (check_lang_support_merlinr(key) && strcmp(key,lang))
+						websWrite(wp, "<dd><a onclick=\"submit_language(this)\" id=\"%s\">%s</a></dd>\\n", key, target);
+					break;
+				}
 			}
 			else
 				break;
@@ -12213,7 +12216,7 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 	int count, cnt;
 	long filelen;
 	int offset;
-#if defined(K3) || defined(K3C) || defined(SBRAC1900P) || defined(SBRAC3200P) || defined(R8000P) || defined(R7900P)
+#if defined(K3) || defined(K3C) || defined(SBRAC1900P) || defined(SBRAC3200P) || defined(R8000P) || defined(R7900P) || defined(RAX20)
 	int checkname=0;
 #endif
 #ifndef RTCONFIG_SMALL_FW_UPDATE
@@ -12266,11 +12269,14 @@ do_upgrade_post(char *url, FILE *stream, int len, char *boundary)
 #elif defined(R8000P) || defined(R7900P)
 		if (strstr(buf, "R7900P")||strstr(buf, "R8000P"))
 			checkname=1;
+#elif  defined(RAX20)
+		if (strstr(buf, "RAX20"))
+			checkname=1;
 #endif
 		if (!strncasecmp(buf, "Content-Disposition:", 20) && strstr(buf, "name=\"file\""))
 			break;
 	}
-#if defined(K3) || defined(K3C) || defined(SBRAC1900P) || defined(SBRAC3200P) || defined(R8000P) || defined(R7900P)
+#if defined(K3) || defined(K3C) || defined(SBRAC1900P) || defined(SBRAC3200P) || defined(R8000P) || defined(R7900P) || defined(RAX20)
 	if(checkname==0)
 		goto err;
 #endif
@@ -15803,9 +15809,8 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 
 	authorization_t = websGetVar(wp, "login_authorization","");
 
-#ifdef RTCONFIG_UIDEBUG
-	HTTPD_DBG("authorization_t = %s", authorization_t);
-#endif
+	HTTPD_DBG("authorization_t = %s\n", authorization_t);
+
 	/* Decode it. */
 	l = b64_decode( &(authorization_t[0]), (unsigned char*) authinfo, sizeof(authinfo) );
 	authinfo[l] = '\0';
@@ -15891,7 +15896,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	//if (!authpass_fail && nvram_match("http_username", authinfo) && nvram_match("http_passwd", authpass))
 	if (!authpass_fail && nvram_match("http_username", authinfo) && compare_passwd_in_shadow(authinfo, authpass))
 	{
-		HTTPD_DBG("authpass!");
+		HTTPD_DBG("authpass!\n");
 		if (fromapp_flag == FROM_BROWSER){
 			if(!cur_login_ip_type)
 			{
@@ -15908,9 +15913,9 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 
 		generate_token(asus_token, sizeof(asus_token));
 		add_asus_token(asus_token);
-#ifdef RTCONFIG_UIDEBUG
-		HTTPD_DBG("asus_token = %s", asus_token);
-#endif
+
+		HTTPD_DBG("asus_token = %s\n", asus_token);
+
 		websWrite(wp,"Set-Cookie: asus_token=%s; HttpOnly;\r\n",asus_token);
 		websWrite(wp,"Connection: close\r\n" );
 		websWrite(wp,"\r\n" );
@@ -15984,7 +15989,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 #if defined(RTCONFIG_RGBLED) && defined(GTAC2900)
 		send_aura_event("LoginFail");
 #endif
-		HTTPD_DBG("authfail: login_error_status = %d", login_error_status);
+		HTTPD_DBG("authfail: login_error_status = %d\n", login_error_status);
 		if(fromapp_flag != 0){
 			if(login_error_status == LOGINLOCK)
 				websWrite(wp, "{\n\"error_status\":\"%d\",\"remaining_lock_time\":\"%ld\"\n}\n", login_error_status, LOCKTIME - login_dt);
@@ -25332,26 +25337,6 @@ struct ej_handler ej_handlers[] = {
 	{ "radio_status", ej_radio_status},
 	{ "asus_sysinfo", ej_sysinfo},
 	{ "sysinfo", ej_show_sysinfo},
-#if defined(BCMARM)	
-	{ "iptraffic", ej_iptraffic},
-	{ "iptmon", ej_iptmon},
-	{ "ipt_bandwidth", ej_ipt_bandwidth},
-#ifdef RTCONFIG_IPV6
-#ifdef RTCONFIG_IGD2
-	{ "ipv6_pinholes",  ej_ipv6_pinhole_array},
-#endif
-	{ "get_ipv6net_array", ej_lan_ipv6_network_array},
-#endif
-	{ "get_leases_array", ej_get_leases_array},
-	{ "get_vserver_array", ej_get_vserver_array},
-	{ "get_upnp_array", ej_get_upnp_array},
-	{ "get_route_array", ej_get_route_array},
-	{ "get_tcclass_array", ej_tcclass_dump_array},
-#else
-#if defined(BLUECAVE)	
-	{ "kool_info", ej_kool_info},
-#endif
-#endif
 #ifdef RTCONFIG_OPENVPN
 	{ "vpn_server_get_parameter", ej_vpn_server_get_parameter},
 	{ "vpn_client_get_parameter", ej_vpn_client_get_parameter},

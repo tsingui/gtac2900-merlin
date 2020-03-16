@@ -955,7 +955,7 @@ handle_request(void)
 						{
 							char dictname[32];
 							_dprintf("handle_request: pLang->Lang = %s\n", pLang->Lang);
-							if (!check_lang_support(pLang->Target_Lang))
+							if (!check_lang_support_merlinr(pLang->Target_Lang))
 								break;
 
 							snprintf(dictname, sizeof(dictname), "%s.dict", pLang->Target_Lang);
@@ -1013,7 +1013,6 @@ handle_request(void)
 			cp += strspn( cp, " \t" );
 			useragent = cp;
 			cur = cp + strlen(cp) + 1;
-			HTTPD_DBG("useragent: %s", useragent);
 		}
 		else if ( strncasecmp( cur, "Cookie:", 7 ) == 0 )
 		{
