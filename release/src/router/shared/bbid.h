@@ -1,0 +1,1 @@
+#define BBOARD_ID GT-AC2900

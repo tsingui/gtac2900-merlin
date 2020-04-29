@@ -245,6 +245,7 @@ var htmlEnDeCode = (function() {
 
 var sw_mode = '<% nvram_get("sw_mode"); %>';
 var wlc_band = '<% nvram_get("wlc_band"); %>';
+var wlc_triBand = '<% nvram_get("wlc_triBand"); %>';
 /*Media Bridge mode
 Broadcom: sw_mode = 3 & wlc_psta = 1, sw_mode = 3 & wlc_psta = 3
 MTK/QCA: sw_mode = 2 & wlc_psta = 1
@@ -398,10 +399,15 @@ var wl_info = {
 };
 //wireless end
 
+var rc_support = '<% nvram_get("rc_support"); %>';
 function isSupport(_ptn){
 	var ui_support = [<% get_ui_support(); %>][0];
+	if(_ptn == "uu_accel")
+		if(rc_support.search("uu_accel") != -1)
+			return 1;
 	return (ui_support[_ptn]) ? ui_support[_ptn] : 0;
 }
+
 
 var spirit_logo_support = isSupport("spirit");
 var wifilogo_support = isSupport("WIFI_LOGO"); 
@@ -546,6 +552,7 @@ var hdspindown_support = isSupport("hdspindown");
 var amesh_support = isSupport("amas");
 var ameshRouter_support = isSupport("amasRouter");
 var ameshNode_support = isSupport("amasNode");
+var amesh_wgn_support = isSupport("amas_wgn");
 var ifttt_support = isSupport("ifttt");
 var alexa_support = isSupport("alexa");
 var hnd_support = isSupport("hnd");
@@ -556,10 +563,8 @@ var meoVoda_support = isSupport("meoVoda");
 var movistarTriple_support = isSupport("movistarTriple");
 var utf8_ssid_support = isSupport("utf8_ssid");
 var wpa3_support = isSupport('wpa3');
-if(based_modelid == "RT-AC3100" || based_modelid == "RT-AC3200" || based_modelid == "RT-AC68U" || based_modelid == "GT-AC5300")
-	var uu_support = 1;
-else
-	var uu_support = isSupport('uu_accel');
+var uu_support = isSupport('uu_accel');
+
 var QISWIZARD = "QIS_wizard.htm";
 
 var wl_version = "<% nvram_get("wl_version"); %>";
@@ -576,6 +581,12 @@ var dblog_support = isSupport("dblog");
 var qca_support = isSupport("qca");
 var geforceNow_support = isSupport("nvgfn");
 var fileflex_support = isSupport("fileflex");
+var re_mode = '<% nvram_get("re_mode"); %>';
+var conndiag_support = (function(){
+	return (isSupport("conndiag") && ('<% nvram_get("enable_diag"); %>' == "2"));
+})();
+
+var amazon_wss_support = isSupport("amazon_wss");
 
 if(nt_center_support)
 	document.write('<script type="text/javascript" src="/client_function.js"></script>');
@@ -610,7 +621,6 @@ var gn_array_5g = <% wl_get_guestnetwork("1"); %>;
 var gn_array_5g_2 = <% wl_get_guestnetwork("2"); %>;
 var gn_array_60g = <% wl_get_guestnetwork("3"); %>;
 if(lyra_hide_support){
-	gn_array_2g.splice(1, gn_array_2g.length-1);
 	gn_array_5g = [];
 	gn_array_5g_2 = [];
 }
@@ -677,6 +687,7 @@ var realip_ip = "";
 var external_ip = 0;
 
 var link_internet = '<% nvram_get("link_internet"); %>';
+var le_restart_httpd_chk = "";
 
 if(lyra_hide_support){
 	var Android_app_link = "https://play.google.com/store/apps/details?id=com.asus.hive";
@@ -1734,7 +1745,7 @@ function show_top_status(){
 		ssid_status_5g_2 = "";
 
 	if(sw_mode == 4){
-		if('<% nvram_get("wlc_band"); %>' == '0'){
+		if(wlc_band == '0'){
 			document.getElementById("elliptic_ssid_2g").style.display = "none";
 			document.getElementById("elliptic_ssid_5g").style.marginLeft = "";
 		}
@@ -1771,9 +1782,9 @@ function show_top_status(){
 					document.getElementById('elliptic_ssid_5g_2').style.display = "none";
 			}
 		}	
-		else if('<% nvram_get("wlc_band"); %>' == '0')
+		else if(wlc_band == '0')
 			ssid_status_2g =  htmlEnDeCode.htmlEncode(decodeURIComponent('<% nvram_char_to_ascii("WLANConfig11b", "wl0.1_ssid"); %>'));
-		else if('<% nvram_get("wlc_band"); %>' == '2'){
+		else if(wlc_band == '2'){
 			if(wl_info.band5g_2_support){
 				ssid_status_5g_2 =  htmlEnDeCode.htmlEncode(decodeURIComponent('<% nvram_char_to_ascii("WLANConfig11b", "wl2.1_ssid"); %>'));
 			}
@@ -2300,13 +2311,14 @@ function hadPlugged(deviceType){
 
 //Update current system status
 var AUTOLOGOUT_MAX_MINUTE = parseInt('<% nvram_get("http_autologout"); %>') * 20;
+var error_num = 5;
 function updateStatus(){
 	if(stopFlag == 1) return false;
 	if(AUTOLOGOUT_MAX_MINUTE == 1) location = "Logout.asp"; // 0:disable auto logout, 1:trigger auto logout. 
 
 	require(['/require/modules/makeRequest.js'], function(makeRequest){
 		if(AUTOLOGOUT_MAX_MINUTE != 0) AUTOLOGOUT_MAX_MINUTE--;
-		makeRequest.start('/ajax_status.xml', refreshStatus, function(){stopFlag = 1;});
+		makeRequest.start('/ajax_status.xml', refreshStatus, function(){ if(error_num > 0){ error_num--; updateStatus(); }	else stopFlag = 1; });
 	});
 }
 
@@ -2425,11 +2437,14 @@ function refreshStatus(xhr){
 	if(concurrent_pap){
 		_wlc0_state = wanStatus[27].firstChild.nodeValue;
 		_wlc1_state = wanStatus[28].firstChild.nodeValue;
+		if(isSupport("triband"))
+			_wlc2_state = wanStatus[33].firstChild.nodeValue;
 	}
 	rssi_2g = wanStatus[29].firstChild.nodeValue.replace("rssi_2g=", "");
 	rssi_5g = wanStatus[30].firstChild.nodeValue.replace("rssi_5g=", "");
 	rssi_5g_2 = wanStatus[31].firstChild.nodeValue.replace("rssi_5g_2=", "");
 	link_internet = wanStatus[32].firstChild.nodeValue.replace("link_internet=", "");
+	le_restart_httpd = wanStatus[34].firstChild.nodeValue.replace("le_restart_httpd=", "");
 
 	var vpnStatus = devicemapXML[0].getElementsByTagName("vpn");
 	vpnc_proto = vpnStatus[0].firstChild.nodeValue.replace("vpnc_proto=", "");
@@ -2822,46 +2837,36 @@ function refreshStatus(xhr){
 			}
 
 			if(concurrent_pap){
+				// connected or not
 				if (_wlc0_state == "wlc0_state=2") {
 					document.getElementById('speed_info_primary').style.display = "";
 					document.getElementById('rssi_info_primary').style.display = "";
+					document.getElementById('primary_line').className = "primary_wan_connected";				
 				} else {
 					document.getElementById('speed_info_primary').style.display = "none";
 					document.getElementById('rssi_info_primary').style.display = "none";
+					document.getElementById('primary_line').className = "primary_wan_disconnected";					
 				}
-
-				if (_wlc1_state == "wlc1_state=2") {
+				if (_wlc1_state == "wlc1_state=2" || _wlc2_state == "wlc2_state=2") {
 					document.getElementById('speed_info_secondary').style.display = "";
 					document.getElementById('rssi_info_secondary').style.display = "";
+					document.getElementById('secondary_line').className = "secondary_wan_connected";
 				} else {
 					document.getElementById('speed_info_secondary').style.display = "none";
 					document.getElementById('rssi_info_secondary').style.display = "none";
+					document.getElementById('secondary_line').className = "secondary_wan_disconnected";
 				}
 
+				// text html
 				document.getElementById('speed_info_primary').innerHTML = "Link Rate: " + data_rate_info_2g;
-				if (!Rawifi_support && !Qcawifi_support && wlifnames.length == 3 && dpsta_band == 2)
+				document.getElementById('rssi_info_primary').innerHTML = "RSSI: " + rssi_2g;
+				if (dpsta_band == 2 || wlc_triBand == 2){
 					document.getElementById('speed_info_secondary').innerHTML = "Link Rate: " + data_rate_info_5g_2;
-				else
+					document.getElementById('rssi_info_secondary').innerHTML = "RSSI: " + rssi_5g_2;
+				}
+				else{
 					document.getElementById('speed_info_secondary').innerHTML = "Link Rate: " + data_rate_info_5g;
-				if (!Rawifi_support && !Qcawifi_support) {
-					document.getElementById('rssi_info_primary').innerHTML = "RSSI: " + rssi_2g;
-					if (wlifnames.length == 3 && dpsta_band == 2)
-						document.getElementById('rssi_info_secondary').innerHTML = "RSSI: " + rssi_5g_2;
-					else
-						document.getElementById('rssi_info_secondary').innerHTML = "RSSI: " + rssi_5g;
-				}
-				if(_wlc0_state == "wlc0_state=2"){
-					document.getElementById('primary_line').className = "primary_wan_connected";				
-				}
-				else{
-					document.getElementById('primary_line').className = "primary_wan_disconnected";					
-				}
-				
-				if(_wlc1_state == "wlc1_state=2"){
-					document.getElementById('secondary_line').className = "secondary_wan_connected";
-				}
-				else{
-					document.getElementById('secondary_line').className = "secondary_wan_disconnected";
+					document.getElementById('rssi_info_secondary').innerHTML = "RSSI: " + rssi_5g;
 				}
 			}
 			else{
@@ -3178,7 +3183,12 @@ function refreshStatus(xhr){
 		setTimeout(function(){notification.updateNTDB_Status();}, 10000);
 	else
 		notification.updateNTDB_Status()
-	
+
+	if(letsencrypt_support && le_restart_httpd == "1" && le_restart_httpd_chk == ""){
+		alert("<#LANHostConfig_x_DDNSLetsEncrypt_ReloginHint#>");
+		le_restart_httpd_chk = le_restart_httpd;
+	}
+
 	if(window.frames["statusframe"] && window.frames["statusframe"].stopFlag == 1 || stopFlag == 1){
 		return 0;
 	}
@@ -3298,15 +3308,33 @@ function set_variable(_variable, _val){
 	document.form.appendChild(NewInput);
 }
 
-function isPortConflict(_val){
-	if(_val == '<% nvram_get("http_lanport"); %>')
-		return "<#portConflictHint#>: HTTP LAN port.";
-	else if(_val == '<% nvram_get("dm_http_port"); %>')
-		return "<#portConflictHint#>: <#DM_title#>.";
-	else if(_val == '<% nvram_get("webdav_http_port"); %>')
-		return "<#portConflictHint#>: Cloud Disk.";
-	else if(_val == '<% nvram_get("webdav_https_port"); %>')
-		return "<#portConflictHint#>: Cloud Disk.";
+function isPortConflict(_val, service){
+	var str = "(" + _val + ") <#portConflictHint#>: ";
+
+	if(_val == '<% nvram_get("http_lanport"); %>'){
+		str = str + "HTTP LAN port.";
+		return str;
+	}
+	else if(_val == '<% nvram_get("dm_http_port"); %>'){
+		str = str + "<#DM_title#>.";
+		return str;
+	}
+	else if(_val == '<% nvram_get("webdav_http_port"); %>'){
+		str = str + "Cloud Disk.";
+		return str;
+	}
+	else if(_val == '<% nvram_get("webdav_https_port"); %>'){
+		str = str + "Cloud Disk.";
+		return str;
+	}
+	else if(service != "ssh" && _val == '<% nvram_get("sshd_port"); %>'){
+		str = str + "SSH.";
+		return str;
+	}
+	else if(service != "openvpn" && _val == '<% nvram_get("vpn_server_port"); %>'){
+		str = str + "OpenVPN.";
+		return str;
+	}
 	else
 		return false;
 }

@@ -1,4 +1,4 @@
-﻿/* Plugin */
+/* Plugin */
 if (!Object.keys) {
   Object.keys = (function() {
     'use strict';
@@ -59,6 +59,28 @@ var isJsonChanged = function(objNew, objOld){
 
     return false;
 };
+
+/* ouiDB lookup code */
+var ouiClientListArray = new Array();
+ouiClientListArray = Session.get("ouiDB");
+if(ouiClientListArray == undefined) {
+	ouiClientListArray = [];
+	//Download OUI DB
+	setTimeout(function() {
+		var ouiBDjs = document.createElement("script");
+		ouiBDjs.type = "application/javascript";
+		ouiBDjs.src = "/js/ouiDB.js";
+		window.document.body.appendChild(ouiBDjs);
+	}, 1000);
+}
+
+function updateManufacturer(_ouiDBArray) {
+	ouiClientListArray = [];
+	ouiClientListArray = _ouiDBArray;
+	Session.set("ouiDB", _ouiDBArray);
+}
+
+/* End ouiDB lookup code */
 
 var ipState = new Array();
 ipState["Static"] = "<#BOP_ctype_title5#>";
@@ -2122,7 +2144,7 @@ function drawClientListBlock(objID) {
 				clientListCode += "<td style='word-wrap:break-word; word-break:break-all;' width='" + obj_width[2] + "'>";
 				var clientNameEnCode = htmlEnDeCode.htmlEncode(decodeURIComponent(clientlist_sort[j].name));
 				clientListCode += "<div id='div_clientName_"+objID+"_"+j+"' class='viewclientlist_clientName_edit' onclick='editClientName(\""+objID+"_"+j+"\");'>"+clientNameEnCode+"</div>";
-				clientListCode += "<input id='client_name_"+objID+"_"+j+"' type='text' value='"+clientNameEnCode+"' class='input_25_table' maxlength='32' style='width:95%;margin-left:0px;display:none;' onblur='saveClientName(\""+objID+"_"+j+"\", "+clientlist_sort[j].type+", \"" + clientlist_sort[j].mac + "\");'>";
+				clientListCode += "<input id='client_name_"+objID+"_"+j+"' type='text' value='"+clientNameEnCode+"' class='input_25_table' maxlength='32' style='width:95%;margin-left:0px;display:none;' onblur='saveClientName(\""+objID+"_"+j+"\", "+clientlist_sort[j].type+", this);'>";
 				clientListCode += "</td>";
 				var ipStyle = ('<% nvram_get("sw_mode"); %>' == "1") ? "line-height:16px;text-align:left;padding-left:10px;" : "line-height:16px;text-align:center;";
 				clientListCode += "<td width='" + obj_width[3] + "' style='" + ipStyle + "'>";
@@ -2322,7 +2344,7 @@ function editClientName(index) {
 	edit_client_name_flag = true;
 }
 var view_custom_name = decodeURIComponent('<% nvram_char_to_ascii("", "custom_clientlist"); %>').replace(/&#62/g, ">").replace(/&#60/g, "<");
-function saveClientName(index, type, mac) {
+function saveClientName(index, type, obj) {
 	document.getElementById("client_name_"+index).value = document.getElementById("client_name_"+index).value.trim();
 	var client_name_obj = document.getElementById("client_name_"+index);
 	if(client_name_obj.value.length == 0){
@@ -2375,7 +2397,7 @@ function saveClientName(index, type, mac) {
 	originalCustomListArray = view_custom_name.split('<');
 	
 	onEditClient[0] = client_name_obj.value;
-	onEditClient[1] = mac.toUpperCase();
+	onEditClient[1] = obj.parentNode.parentNode.childNodes[4].innerHTML;
 	onEditClient[2] = 0;
 	onEditClient[3] = type;
 	onEditClient[4] = "";
@@ -2636,3 +2658,103 @@ function showDropdownClientList(_callBackFun, _callBackFunParam, _interfaceMode,
 	else
 		document.getElementById(_pullArrowID).style.display = "";
 }
+
+/* Exported from device-map/clients.asp */
+
+function retOverLibStr(client){
+
+	if (typeof client == "undefined")
+		return "";
+
+	var overlibStr = "<p><#MAC_Address#>:</p>" + client.mac.toUpperCase();
+
+	if(client.ssid)
+		overlibStr += "<p>SSID:</p>" + client.ssid;
+	if(client.isLogin)
+		overlibStr += "<p><#CTL_localdevice#>:</p>YES";
+	if(client.isPrinter)
+		overlibStr += "<p><#Device_service_Printer#></p>YES";
+	if(client.isITunes)
+		overlibStr += "<p><#Device_service_iTune#></p>YES";
+	if(client.isWL > 0)
+		overlibStr += "<p><#Wireless_Radio#>:</p>" + ((client.isWL == 2) ? "5GHz (" : "2.4GHz (") + client.rssi + "db)";
+
+	return overlibStr;
+}
+
+function ajaxCallJsonp(target){
+    var data = $.getJSON(target, {format: "json"});
+
+    data.success(function(msg){
+	parent.retObj = msg;
+	parent.db("Success!");
+    });
+
+    data.error(function(msg){
+	parent.db("Error on fetch data!")
+    });
+}
+
+function oui_query_full_vendor(mac){
+	setTimeout(function(){
+		var manufacturer_id = mac.replace(/\:/g,"").substring(0, 6).toUpperCase();
+
+		if(ouiClientListArray[manufacturer_id] != undefined) {
+			if (typeof clientList[mac] != "undefined")
+				var overlibStrTmp = retOverLibStr(clientList[mac]);
+			else
+				var overlibStrTmp = "<p><#MAC_Address#>:</p>" + mac.toUpperCase();
+			overlibStrTmp += "<p><span>.....................................</span></p><p style='margin-top:5px'><#Manufacturer#>:</p>";
+			overlibStrTmp += ouiClientListArray[manufacturer_id];
+//			if(clientList[mac].vendor != "") {
+//				overlibStrTmp += "<p style='margin-top:5px'>Vendor:</p>";
+//				overlibStrTmp += clientList[mac].vendor;
+//			}
+			return overlib(overlibStrTmp);
+		} else {
+			return oui_query_web(mac);
+		}
+	}, 1);
+}
+
+function oui_query_web(mac){
+	if('<% nvram_get("x_Setting"); %>' == '1' && wanConnectStatus && ((typeof clientList[mac] == "undefined") || (clientList[mac].internetState))) {
+		var queryStr = mac.replace(/\:/g, "").splice(6,6,"");
+		$.ajax({
+			url: 'https://services11.ieee.org/RST/standards-ra-web/rest/assignments/download/?registry=MA-L&format=html&text='+ queryStr,
+			type: 'GET',
+			success: function(response) {
+				if(overlib.isOut) return nd();
+
+				if (typeof clientList[mac] != "undefined")
+					var overlibStrTmp  = retOverLibStr(clientList[mac]);
+				else
+					var overlibStrTmp = "<p><#MAC_Address#>:</p>" + mac.toUpperCase();
+
+				if(response.search("Sorry!") == -1) {
+					if(response.search(queryStr) != -1) {
+						var retData = response.split("pre")[1].split("(base 16)")[1].replace("PROVINCE OF CHINA", "R.O.C").split("</");
+						overlibStrTmp += "<p><span>.....................................</span></p><p style='margin-top:5px'><#Manufacturer#>:</p>";
+						overlibStrTmp += retData[0].slice(0,retData[0].indexOf("\n"))
+//						if(clientList[mac].vendor != "") {
+//							overlibStrTmp += "<p style='margin-top:5px'>Vendor:</p>";
+//							overlibStrTmp += clientList[mac].vendor;
+//						}
+					}
+				}
+                                return overlib(overlibStrTmp);
+			}
+		});
+	}
+}
+
+function clientFromIP(ip) {
+	for(var i=0; i<clientList.length;i++){
+		var clientObj = clientList[clientList[i]];
+		if(clientObj.ip == ip) return clientObj;
+	}
+	return 0;
+}
+
+/* End exported functions */
+

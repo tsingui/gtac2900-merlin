@@ -196,10 +196,8 @@ else
 endif
 ifeq ($(RTCONFIG_CFGSYNC),y)
 ifeq ($(BUILD_NAME), $(filter $(BUILD_NAME), RT-AC3100 RT-AC3200 RT-AC68U RT-AC86U GT-AC5300 GT-AC2900 BLUECAVE RT-AC85P RT-ACRH17 RT-AX88U GT-AX11000 RT-AX92U))
-	cp -f webs_scripts/merlinr_webs_download.sh $(INSTALLDIR)/usr/sbin/webs_download.sh
 	cp -f webs_scripts/merlinr_webs_note.sh $(INSTALLDIR)/usr/sbin/webs_note.sh
 else
-	cp -f webs_scripts/ssl_webs_download.sh $(INSTALLDIR)/usr/sbin/webs_download.sh
 	cp -f webs_scripts/ssl_webs_note.sh $(INSTALLDIR)/usr/sbin/webs_note.sh
 endif
 endif

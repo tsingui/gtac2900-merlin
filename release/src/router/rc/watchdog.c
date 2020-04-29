@@ -250,6 +250,8 @@ static void *fn_acts[_NSIG];
 static int ddns_check_count = 0;
 static int freeze_duck_count = 0;
 
+static char time_zone_t[32]={0};
+
 static const struct mfg_btn_s {
 	enum btn_id id;
 	char *name;
@@ -6026,12 +6028,12 @@ static void softcenter_sig_check()
 {
 	//1=wan,2=nat,3=mount
 	if(nvram_match("sc_installed", "1")){
-		if(!pids("perpd")){
+		//if(!pids("perpd")){
 			//char *perp_argv[] = { "/jffs/softcenter/perp/perp.sh", "start",NULL };
 			//pid_t pid;
 			//_eval(perp_argv, NULL, 0, &pid);
-			doSystem("sh /jffs/softcenter/perp/perp.sh start &");
-		}
+			//doSystem("sh /jffs/softcenter/perp/perp.sh start &");
+		//}
 		if(nvram_match("sc_wan_sig", "1")) {
 			if(nvram_match("sc_mount", "1")) {
 				if(f_exists("/jffs/softcenter/bin/softcenter.sh")) {
@@ -6060,6 +6062,18 @@ static void softcenter_sig_check()
 				nvram_set_int("sc_mount_sig", 0);
 			}
 		}
+		if(nvram_match("sc_services_sig", "1")) {
+			if(f_exists("/jffs/softcenter/bin/softcenter.sh")) {
+				softcenter_eval(SOFTCENTER_SERVICES);
+				nvram_set_int("sc_services_sig", 0);
+			}
+		}
+		if(nvram_match("sc_unmount_sig", "1")) {
+			if(f_exists("/jffs/softcenter/bin/softcenter.sh")) {
+				softcenter_eval(SOFTCENTER_UNMOUNT);
+				nvram_set_int("sc_unmount_sig", 0);
+			}
+		}
 	}
 }
 #endif
@@ -6069,7 +6083,9 @@ static void check_auth_code()
 {
 	static int i;
 	if (i==0)
-#if defined(K3) || defined(K3C) || defined(R8000P) || defined(R7900P)
+#if defined(K3C)
+		i=auth_code_check(nvram_get("et0macaddr"), nvram_get("uuid"));
+#elif defined(K3) || defined(R8000P) || defined(R7900P)
 		i=auth_code_check(cfe_nvram_get("et0macaddr"), nvram_get("uuid"));
 #elif defined(SBRAC1900P)
 		i=auth_code_check(cfe_nvram_get("et2macaddr"), nvram_get("uuid"));
@@ -6515,7 +6531,7 @@ static void auto_firmware_check()
 	int cycle = (cycle_manual > 1) ? cycle_manual : 2880;
 	char *datestr[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 	time_t now;
-	struct tm *tm;
+	struct tm local;
 	static int rand_hr, rand_min;
 
 	if (!nvram_get_int("ntp_ready")){
@@ -6523,13 +6539,13 @@ static void auto_firmware_check()
 		return;
 	}
 
+	time(&now);
+	localtime_r(&now, &local);
+
 	if (!bootup_check && !periodic_check)
 	{
-		time(&now);
-		tm = localtime(&now);
-
-		if ((tm->tm_hour == (2 + rand_hr)) &&	// every 48 hours at 2 am + random offset
-		    (tm->tm_min == rand_min))
+		if ((local.tm_hour == (2 + rand_hr)) &&	// every 48 hours at 2 am + random offset
+		    (local.tm_min == rand_min))
 		{
 			periodic_check = 1;
 			period = -1;
@@ -6545,7 +6561,7 @@ static void auto_firmware_check()
 	if (!period || (period_retry < 2 && bootup_check == 0))
 	{
 		if(nvram_get_int("webs_state_dl_error")){
-			if(!strncmp(datestr[tm->tm_wday], nvram_safe_get("webs_state_dl_error_day"), 3))
+			if(!strncmp(datestr[local.tm_wday], nvram_safe_get("webs_state_dl_error_day"), 3))
 				return;
 			else
 				nvram_set("webs_state_dl_error", "0");
@@ -8079,7 +8095,9 @@ void watchdog(int sig)
 		     (nvram_match("usb_path2_speed", "12") &&
 		      !nvram_match("usb_path2", "printer") && !nvram_match("usb_path2", "modem")))) {
 			_dprintf("force reset usb pwr\n");
+#ifdef RTCONFIG_USB
 			stop_usb_program(1);
+#endif
 			sleep(1);
 			set_pwr_usb(0);
 			sleep(3);
@@ -8114,7 +8132,13 @@ void watchdog(int sig)
 	if (watchdog_period)
 		return;
 
-#if defined(RTCONFIG_HND_ROUTER_AX) && defined(RTCONFIG_HNDMFG)
+	if(nvram_match("ntp_ready", "1") && !nvram_match("time_zone_x", time_zone_t)){
+		strlcpy(time_zone_t, nvram_safe_get("time_zone_x"), sizeof(time_zone_t));
+		setenv("TZ", nvram_safe_get("time_zone_x"), 1);
+		tzset();
+	}
+
+#if defined(RTCONFIG_HND_ROUTER_AX) && defined(RTCONFIG_BCM_MFG)
 	ate_temperature_record();
 #endif
 
@@ -8193,6 +8217,9 @@ wdp:
 	AiProtectionMonitor_mail_log();	// libbwdpi.so
 	tm_eula_check();		// libbwdpi.so
 #endif
+#if defined(RTCONFIG_LANTIQ) && defined(RTCONFIG_GN_WBL)
+	GN_WBL_restart();
+#endif
 
 #ifdef RTCONFIG_NOTIFICATION_CENTER
 	alert_mail_service();
@@ -8228,7 +8255,7 @@ wdp:
 	amas_ctl_check();
 #endif
 #ifdef RTCONFIG_CFGSYNC
-#if defined(MERLINR_VER_MAJOR_R) || defined(MERLINR_VER_MAJOR_X)
+#if !defined(MERLINR_VER_MAJOR_B)
 	cfgsync_check();
 #endif
 #endif

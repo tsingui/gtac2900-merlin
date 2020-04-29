@@ -2376,6 +2376,12 @@ void load_wl()
 		unit++;
 	}
 #endif
+#if defined(RTAC88U) || defined(RTAC3100)
+	int chk_reboot = 0;
+
+	if(!*nvram_safe_get("chiprev"))
+		chk_reboot = 1;
+#endif
 
 	memset(modules, 0, sizeof(modules));
 #if defined(RTCONFIG_BCM_7114) && defined(RTCONFIG_MFGFW)
@@ -2434,6 +2440,19 @@ void load_wl()
 		unit++;
 	}
 #endif
+#if defined(RTAC88U) || defined(RTAC3100)
+	int n = nvram_get_int("tryc")?:5;
+       
+	if(chk_reboot) {
+		for(i=0; i<n; ++i) {
+			if(nvram_get_hex("chiprev")>0 && chiprev_patch(nvram_safe_get("chiprev"))) {
+				_dprintf("\n>>> reboot due chiprev\n");
+				reboot(RB_AUTOBOOT);
+			}
+			sleep(1);
+		}
+	}
+#endif
 }
 #endif
 
@@ -2457,7 +2476,7 @@ void init_wl(void)
 	}
 #endif
 	check_wl_country();
-#if defined(RTAC3200) || defined(RTAC68U) || defined(RTCONFIG_BCM_7114) || defined(HND_ROUTER)
+#if defined(RTAC3200) || defined(RTAC68U) || defined(RTCONFIG_BCM_7114) || defined(HND_ROUTER) || defined(DSL_AC68U)
 	wl_disband5grp();
 #endif
 	set_wltxpower();
@@ -2595,7 +2614,7 @@ void init_wl_compact(void)
 		(model == MODEL_RTN12HP_B1) ||
 		(model == MODEL_RTN18U) ||
 		(model == MODEL_RTN66U)) {
-#if defined(RTAC3200) || defined(RTAC68U) || defined(RTCONFIG_BCM_7114) || defined(HND_ROUTER)
+#if defined(RTAC3200) || defined(RTAC68U) || defined(RTCONFIG_BCM_7114) || defined(HND_ROUTER) || defined(DSL_AC68U)
 		wl_disband5grp();
 #endif
 		set_wltxpower();
@@ -4150,6 +4169,9 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 
 			nvram_set(strcat_r(prefix, "preauth", tmp), nvram_safe_get(strcat_r(prefix2, "preauth", tmp2)));
 			nvram_set(strcat_r(prefix, "bss_maxassoc", tmp), nvram_safe_get(strcat_r(prefix2, "bss_maxassoc", tmp2)));
+
+			/* if amazon_wss is disabled, we need to sync ap_isolate from primary interface */
+			if (!amazon_wss_ap_isolate_support(prefix))
 			nvram_set(strcat_r(prefix, "ap_isolate", tmp), nvram_safe_get(strcat_r(prefix2, "ap_isolate", tmp2)));
 
 			nvram_set(strcat_r(prefix, "net_reauth", tmp), nvram_safe_get(strcat_r(prefix2, "net_reauth", tmp2)));
@@ -7216,22 +7238,23 @@ void dump_exclchans(unsigned int *excs, char *des) {
 	_dprintf("\n");
 }
 
-int init_exclbase(int unit)
+int reset_exclbase(int unit)
 {
+	nvram_set("wl0_acs_excl_chans_base", nvram_safe_get("wl0_acs_excl_chans"));
+	nvram_set("wl1_acs_excl_chans_base", nvram_safe_get("wl1_acs_excl_chans"));
+	if(unit == 3)
+		nvram_set("wl2_acs_excl_chans_base", nvram_safe_get("wl2_acs_excl_chans"));
+
+	_dprintf("\nset exclchans base:\n0:[%s]\n1:[%s]\n2:[%s]\n", nvram_safe_get("wl0_acs_excl_chans_base"), nvram_safe_get("wl1_acs_excl_chans_base"), nvram_safe_get("wl2_acs_excl_chans_base"));
+
 	if(!nvram_get_int("excbase")) {
 		nvram_set("excbase", "1");
-		nvram_set("wl0_acs_excl_chans_base", nvram_safe_get("wl0_acs_excl_chans"));
-		nvram_set("wl1_acs_excl_chans_base", nvram_safe_get("wl1_acs_excl_chans"));
-		if(unit == 3)
-			nvram_set("wl2_acs_excl_chans_base", nvram_safe_get("wl2_acs_excl_chans"));
-
-		_dprintf("\nset exclchans base:\n0:[%s]\n1:[%s]\n2:[%s]\n", nvram_safe_get("wl0_acs_excl_chans_base"), nvram_safe_get("wl1_acs_excl_chans_base"), nvram_safe_get("wl2_acs_excl_chans_base"));
 		nvram_set("wl0_acs_excl_chans_cfg", "");
 		nvram_set("wl1_acs_excl_chans_cfg", "");
 		nvram_set("wl2_acs_excl_chans_cfg", "");
-		return 0;
+		return 1;
 	}
-	return 1;
+	return 0;
 }
 #endif
 
@@ -7253,6 +7276,7 @@ void set_acs_ifnames()
 	unsigned int cfg_excl_chans[3][MAX_CHANS];	// 2g/5g chans num
 	memset(cfg_excl_chans, 0, sizeof(cfg_excl_chans));
 #endif
+	int war = nvram_match("wl1_bw_160", "1") && nvram_match("acs_dfs", "0");
 
 	wl_check_5g_band_group();
 
@@ -7260,9 +7284,9 @@ void set_acs_ifnames()
 	memset(acs_ifnames, 0, sizeof(acs_ifnames));
 	memset(acs_ifnames2, 0, sizeof(acs_ifnames2));
 
-	wl_list_5g_chans(1, 1, list_5g_band1_chans, sizeof(list_5g_band1_chans));
-	wl_list_5g_chans(1, 2, list_5g_band2_chans, sizeof(list_5g_band2_chans));
-	wl_list_5g_chans((num_of_wl_if() == 3) ? 2 : 1, 3, list_5g_band3_chans, sizeof(list_5g_band3_chans));
+	wl_list_5g_chans(1, 1, 0, list_5g_band1_chans, sizeof(list_5g_band1_chans));
+	wl_list_5g_chans(1, 2, war, list_5g_band2_chans, sizeof(list_5g_band2_chans));
+	wl_list_5g_chans((num_of_wl_if() == 3) ? 2 : 1, 3, 0, list_5g_band3_chans, sizeof(list_5g_band3_chans));
 
 	foreach (word, nvram_safe_get("wl_ifnames"), next) {
 #ifdef RTCONFIG_QTN
@@ -7313,6 +7337,8 @@ void set_acs_ifnames()
 	}
 
 	nvram_set("acs_ifnames", acs_ifnames);
+	nvram_set("acs_band1", "0");
+	nvram_set("acs_band3", "0");
 
 	if ((num_of_wl_if() == 3 && !(nvram_get_hex("wl2_band5grp") & WL_5G_BAND_4))
 #ifdef RTCONFIG_TCODE
@@ -7378,15 +7404,15 @@ void set_acs_ifnames()
 
 #ifdef RTCONFIG_AVBLCHAN
 	int excinit = 0;
-	excinit = init_exclbase(unit);
-	if(excinit)
+	excinit = reset_exclbase(unit);
+	if(!excinit)
 		add_cfgexcl_2_acsexcl(cfg_excl_chans);
 #endif
 
 	nvram_set_int("wl0_acs_dfs", 0);
-	nvram_set_int("wl1_acs_dfs", nvram_match("wl1_reg_mode", "h") ? 2 : 0);
+	nvram_set_int("wl1_acs_dfs", nvram_match("wl1_reg_mode", "h") ? (is_psr(1) ? 1 : 2) : 0);
 #if defined(RTAC3200) || defined(RTAC5300) || defined(GTAC5300)
-	nvram_set_int("wl2_acs_dfs", nvram_match("wl2_reg_mode", "h") ? 2 : 0);
+	nvram_set_int("wl2_acs_dfs", nvram_match("wl2_reg_mode", "h") ? (is_psr(2) ? 1 : 2) : 0);
 #endif
 }
 #endif

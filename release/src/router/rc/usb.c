@@ -369,9 +369,6 @@ void add_usb_modem_modules(void)
 	modprobe("rndis_host");
 	modprobe("cdc_ncm");
 	modprobe("cdc_wdm");
-#if LINUX_KERNEL_VERSION >= KERNEL_VERSION(4,1,0)
-	modprobe("huawei_cdc_ncm"); // depend on cdc_ncm, cdc_wdm.
-#endif
 	if(nvram_get_int("usb_qmi"))
 		modprobe("qmi_wwan");
 	modprobe("cdc_mbim");
@@ -390,9 +387,6 @@ void remove_usb_modem_modules(void)
 #if !defined(RTCONFIG_INTERNAL_GOBI) || defined(RTCONFIG_USB_MULTIMODEM)
 	modprobe_r("cdc_mbim");
 	modprobe_r("qmi_wwan");
-#if LINUX_KERNEL_VERSION >= KERNEL_VERSION(4,1,0)
-	modprobe_r("huawei_cdc_ncm");
-#endif
 	modprobe_r("cdc_wdm");
 	modprobe_r("cdc_ncm");
 	modprobe_r("rndis_host");
@@ -1649,7 +1643,7 @@ int umount_mountpoint(struct mntent *mnt, uint flags)
 {
 	int ret = 1, count;
 	char flagfn[128];
-
+	nvram_set_int("sc_unmount_sig", 1);
 	snprintf(flagfn, sizeof(flagfn), "%s/.autocreated-dir", mnt->mnt_dir);
 
 	/* Run user pre-unmount scripts if any. It might be too late if
@@ -1939,6 +1933,8 @@ int mount_partition(char *dev_name, int host_num, char *dsc_name, char *pt_name,
 	if (type == NULL)
 		type = "unknown";
 
+	run_custom_script("pre-mount", 120, dev_name, type);
+
 	if (f_exists("/etc/fstab")) {
 		if (strcmp(type, "swap") == 0) {
 			_eval(swp_argv, NULL, 0, NULL);
@@ -2131,6 +2127,7 @@ _dprintf("usb_path: 4. don't set %s.\n", tmp);
 			run_nvscript("script_usbmount", mountpoint, 3);
 
 		run_custom_script("post-mount", 120, mountpoint, NULL);
+		nvram_set_int("sc_mount_sig", 1);
 
 #if defined(RTCONFIG_APP_PREINSTALLED) && defined(RTCONFIG_CLOUDSYNC)
 		char word[PATH_MAX], *next_word;
@@ -3112,9 +3109,6 @@ start_samba(void)
 #endif
 #endif
 	char smbd_cmd[32];
-#if defined(RTCONFIG_SAMBA3) && defined(RTCONFIG_SAMBA36X)
-	char st_samba_proto[8];
-#endif
 
 	if (getpid() != 1) {
 		notify_rc_after_wait("start_samba");
@@ -3162,15 +3156,10 @@ start_samba(void)
 	system("/sbin/write_smb_conf");
 
 	/* write smbpasswd  */
-#if defined(RTCONFIG_SAMBA3) && defined(RTCONFIG_SAMBA36X)
-	snprintf(st_samba_proto, sizeof(st_samba_proto), "%s", nvram_safe_get("st_samba_proto"));
-
-	if(atoi(st_samba_proto) >= 2)
-		// use samba-3.6.x_opwrt to replace from samba-3.6.x
-		//system("echo -e \"\n\n\" |/usr/sbin/smbpasswd -s -a nobody");
-		system("/usr/sbin/smbpasswd nobody \"\"");
-	else
-		system("/usr/bin/smbpasswd nobody \"\"");
+#if defined(RTCONFIG_SAMBA36X)
+	// use samba-3.6.x_opwrt to replace from samba-3.6.x
+	//system("echo -e \"\n\n\" |/usr/sbin/smbpasswd -s -a nobody");
+	system("/usr/sbin/smbpasswd nobody \"\"");
 #else
 	system("smbpasswd nobody \"\"");
 #endif
@@ -3202,13 +3191,10 @@ start_samba(void)
 		memset(suit_passwd, 0, 64);
 		suit_double_quote(suit_passwd, char_passwd, 64);
 
-#if defined(RTCONFIG_SAMBA3) && defined(RTCONFIG_SAMBA36X)
-		if(atoi(st_samba_proto) >= 2)
-			// use samba-3.6.x_opwrt to replace from samba-3.6.x
-			//snprintf(cmd, sizeof(cmd), "echo -e \"%s\n%s\n\"  |/usr/sbin/smbpasswd -s -a \"%s\"", suit_passwd, suit_passwd, suit_user);
-			snprintf(cmd, sizeof(cmd), "/usr/sbin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
-		else
-			snprintf(cmd, sizeof(cmd), "/usr/bin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
+#if defined(RTCONFIG_SAMBA36X)
+		// use samba-3.6.x_opwrt to replace from samba-3.6.x
+		//snprintf(cmd, sizeof(cmd), "echo -e \"%s\n%s\n\"  |/usr/sbin/smbpasswd -s -a \"%s\"", suit_passwd, suit_passwd, suit_user);
+		snprintf(cmd, sizeof(cmd), "/usr/sbin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
 #else
 		snprintf(cmd, sizeof(cmd), "smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
 #endif
@@ -3249,13 +3235,10 @@ start_samba(void)
 			memset(suit_passwd, 0, 64);
 			suit_double_quote(suit_passwd, char_passwd, 64);
 
-#if defined(RTCONFIG_SAMBA3) && defined(RTCONFIG_SAMBA36X)
-			if(atoi(st_samba_proto) >= 2)
-				// use samba-3.6.x_opwrt to replace from samba-3.6.x
-				//snprintf(cmd, sizeof(cmd), "echo -e \"%s\n%s\n\"  |/usr/sbin/smbpasswd -s -a \"%s\"", suit_passwd, suit_passwd, suit_user);
-				snprintf(cmd, sizeof(cmd), "/usr/sbin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
-			else
-				snprintf(cmd, sizeof(cmd), "/usr/bin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
+#if defined(RTCONFIG_SAMBA36X)
+			// use samba-3.6.x_opwrt to replace from samba-3.6.x
+			//snprintf(cmd, sizeof(cmd), "echo -e \"%s\n%s\n\"  |/usr/sbin/smbpasswd -s -a \"%s\"", suit_passwd, suit_passwd, suit_user);
+			snprintf(cmd, sizeof(cmd), "/usr/sbin/smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
 #else
 			snprintf(cmd, sizeof(cmd), "smbpasswd \"%s\" \"%s\"", suit_user, suit_passwd);
 #endif
@@ -3269,15 +3252,9 @@ start_samba(void)
 		free(nv);
 #endif
 
-#if defined(RTCONFIG_SAMBA3) && defined(RTCONFIG_SAMBA36X)
-	if(atoi(st_samba_proto) >= 2){
-		xstart("/usr/sbin/nmbd", "-D", "-s", "/etc/smb.conf");
-		snprintf(smbd_cmd, sizeof(smbd_cmd), "%s/smbd", "/usr/sbin");
-	}
-	else{
-		xstart("/usr/bin/nmbd", "-D", "-s", "/etc/smb.conf");
-		snprintf(smbd_cmd, sizeof(smbd_cmd), "%s/smbd", "/usr/bin");
-	}
+#if defined(RTCONFIG_SAMBA36X)
+	xstart("/usr/sbin/nmbd", "-D", "-s", "/etc/smb.conf");
+	snprintf(smbd_cmd, sizeof(smbd_cmd), "%s/smbd", "/usr/sbin");
 #else
 	xstart("nmbd", "-D", "-s", "/etc/smb.conf");
 
@@ -3450,7 +3427,7 @@ void start_dms(void)
 	char *argv[] = { MEDIA_SERVER_APP, "-f", "/etc/"MEDIA_SERVER_APP".conf", "-R", NULL, NULL, NULL };
 	static int once = 1;
 	unsigned char ea[ETHER_ADDR_LEN];
-	char serial[18], uuid[37];
+	char serial[18], uuid[37], *friendly_name;
 	char *nv, *nvp, *b, *c;
 	char *nv2, *nvp2;
 	unsigned char type = 0;
@@ -3527,6 +3504,10 @@ void start_dms(void)
 			snprintf(uuid, sizeof(uuid), "4d696e69-444c-164e-9d41-%02x%02x%02x%02x%02x%02x",
 				 ea[0], ea[1], ea[2], ea[3], ea[4], ea[5]);
 
+			friendly_name = nvram_get("dms_friendly_name");
+			if (*friendly_name == '\0' || !is_valid_hostname(friendly_name))
+				friendly_name = get_lan_hostname();
+
 			fprintf(f,
 				"network_interface=%s\n"
 				"port=%d\n"
@@ -3539,7 +3520,7 @@ void start_dms(void)
 				"album_art_names=Cover.jpg/cover.jpg/Thumb.jpg/thumb.jpg\n",
 				nvram_safe_get("lan_ifname"),
 				(port < 0) || (port >= 0xffff) ? 0 : port,
-				is_valid_hostname(nvram_get("dms_friendly_name")) ? nvram_get("dms_friendly_name") : get_productid(),
+				friendly_name,
 				dbdir,
 				nvram_get_int("dms_tivo") ? "yes" : "no",
 				nvram_get_int("dms_stdlna") ? "yes" : "no");
@@ -3734,7 +3715,7 @@ write_mt_daapd_conf(char *servername)
 void
 start_mt_daapd()
 {
-	char servername[32];
+	char *servername;
 
 	if (getpid() != 1) {
 		notify_rc("start_mt_daapd");
@@ -3752,12 +3733,11 @@ start_mt_daapd()
 	if (!sd_partition_num() && !nvram_match("usb_debug", "1"))
 		return;
 
-	if (is_valid_hostname(nvram_safe_get("daapd_friendly_name")))
-		strncpy(servername, nvram_safe_get("daapd_friendly_name"), sizeof(servername));
-	else
-		servername[0] = '\0';
-	if (strlen(servername)==0) strncpy(servername, get_productid(), sizeof(servername));
-		write_mt_daapd_conf(servername);
+	servername = nvram_safe_get("daapd_friendly_name");
+	if (*servername == '\0' || !is_valid_hostname(servername))
+		servername = get_lan_hostname();
+
+	write_mt_daapd_conf(servername);
 
 	if (pids("mt-daapd")) {
 		killall_tk("mt-daapd");

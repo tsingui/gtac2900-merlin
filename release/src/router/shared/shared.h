@@ -52,6 +52,10 @@
 #include <ftw.h>
 #include "network_utility.h"
 
+#ifdef RTCONFIG_AHS
+#include "notify_ahs.h"
+#endif /* RTCONFIG_AHS */
+
 #if defined(RTCONFIG_PTHSAFE_POPEN)
 #define	popen	PS_popen
 #define	pclose	PS_pclose
@@ -191,6 +195,10 @@ extern int PS_pclose(FILE *);
 #define IS_BW_QOS()             (nvram_get_int("qos_enable") == 1 && nvram_get_int("qos_type") == 2)   // Bandwidth limiter
 #define IS_GFN_QOS()            (nvram_get_int("qos_enable") == 1 && nvram_get_int("qos_type") == 3)   // GeForce NOW QoS (Nvidia)
 #define IS_NON_AQOS()           (nvram_get_int("qos_enable") == 1 && nvram_get_int("qos_type") != 1)   // non A.QoS = others QoS (T.QoS / bandwidth monitor ... etc.)
+
+/* Guest network mark */
+#define GUEST_INIT_MARKNUM 10   /*10 ~ 30 for Guest Network. */
+#define INITIAL_MARKNUM    30   /*30 ~ X  for LAN . */
 
 #ifdef RTCONFIG_INTERNAL_GOBI
 #define DEF_SECOND_WANIF	"usb"
@@ -392,8 +400,9 @@ enum conndiagEvent {
 	EID_CD_MAX
 };
 #define RAST_IPC_MAX_CONNECTION		5
-#define RAST_IPC_SOCKET_PATH		"/etc/rast_ipc_socket"
-#define CONNDIAG_IPC_SOCKET_PATH	"/etc/conndiag_ipc_socket"
+#define RAST_IPC_SOCKET_PATH		"/var/run/rast_ipc_socket"
+#define RAST_INTERNAL_IPC_SOCKET_PATH	"/var/run/rast_internal_ipc_socket"
+#define CONNDIAG_IPC_SOCKET_PATH	"/var/run/conndiag_ipc_socket"
 #define RAST_PREFIX     "RAST"
 #define CHKSTA_PREFIX   "CHKSTA"
 /* key name of json from rast */
@@ -414,6 +423,8 @@ enum conndiagEvent {
 #define RAST_RATE       "RATE"
 #define RAST_TXRATE     "TXRATE"
 #define RAST_RXRATE     "RXRATE"
+#define RAST_TXNRATE    "TXNRATE"
+#define RAST_RXNRATE    "RXNRATE"
 #define RAST_DATA       "DATA"
 #define RAST_MODE       "MODE"
 #define RAST_SERVED_AP_BSSID	"SERVED_AP_BSSID"
@@ -568,11 +579,6 @@ struct vlan_rules_s {
 
 extern char *read_whole_file(const char *target);
 extern char *get_line_from_buffer(const char *buf, char *line, const int line_size);
-extern char *get_upper_str(const char *const str, char **target);
-extern int upper_strcmp(const char *const str1, const char *const str2);
-extern int upper_strncmp(const char *const str1, const char *const str2, int count);
-extern char *upper_strstr(const char *const str, const char *const target);
-extern int stricmp(char const *a, char const *b, int len);
 #if defined(HND_ROUTER)
 // defined (__GLIBC__) && !defined(__UCLIBC__)
 size_t strlcpy(char *dst, const char *src, size_t size);
@@ -686,9 +692,8 @@ extern int foreach_wif(int include_vifs, void *param,
 	int (*func)(int idx, int unit, int subunit, void *param));
 
 //shutils.c
-#ifndef modprobe
 #define modprobe(mod, args...) ({ char *argv[] = { "modprobe", "-s", mod, ## args, NULL }; _eval(argv, NULL, 0, NULL); })
-#endif
+extern int modprobe_r(const char *mod);
 extern void dbgprintf (const char * format, ...); //Ren
 extern void cprintf(const char *format, ...);
 extern int _eval(char *const argv[], const char *path, int timeout, int *ppid);
@@ -839,7 +844,14 @@ enum {
 	MODEL_RTAX95Q,
 	MODEL_RTAX58U,
 	MODEL_RTAX56U,
- 	MODEL_MAX};
+	MODEL_SHAC1300,
+	MODEL_RPAC92,
+	MODEL_ZENWIFICD6R,
+	MODEL_ZENWIFICD6N,
+	MODEL_RTAX86U,
+	MODEL_RTAX68U,
+	MODEL_MAX
+};
 
 /* NOTE: Do not insert new entries in the middle of this enum,
  * always add them to the end! */
@@ -1488,18 +1500,7 @@ static inline int get_radio_band(int band)
 }
 
 #ifdef RTCONFIG_DUALWAN
-static inline int eth_wantype(int unit)
-{
-	int type = get_dualwan_by_unit(unit);
-
-	if (type == WANS_DUALWAN_IF_WAN ||
-	    type == WANS_DUALWAN_IF_LAN ||
-	    type == WANS_DUALWAN_IF_WAN2 ||
-	    type == WANS_DUALWAN_IF_SFPP)
-		return 1;
-
-	return 0;
-}
+static inline int eth_wantype(int unit);
 
 static inline int dualwan_unit__usbif(int unit)
 {
@@ -1546,7 +1547,44 @@ static inline int get_primaryif_dualwan_unit(void)
 {
 	return wan_primary_ifunit();
 }
+
+static inline int get_wans_dualwan(void) {
+#ifdef RTCONFIG_USB_MODEM
+	return WANSCAP_WAN | WANSCAP_USB;
+#else
+	return WANSCAP_WAN;
+#endif
+}
+
+static inline int get_dualwan_by_unit(int unit) {
+#ifdef RTCONFIG_MULTICAST_IPTV
+	if(unit == WAN_UNIT_IPTV)
+		return WAN_UNIT_IPTV;
+	if(unit == WAN_UNIT_VOIP)
+		return WAN_UNIT_VOIP;
+#endif
+#ifdef RTCONFIG_USB_MODEM
+	return (unit == WAN_UNIT_FIRST) ? WANS_DUALWAN_IF_WAN : WANS_DUALWAN_IF_USB;
+#else
+	return (unit == WAN_UNIT_FIRST) ? WANS_DUALWAN_IF_WAN : WANS_DUALWAN_IF_NONE;
+#endif
+}
+
+static inline int get_nr_wan_unit(void) { return 1; }
 #endif // RTCONFIG_DUALWAN
+
+static inline int eth_wantype(int unit)
+{
+	int type = get_dualwan_by_unit(unit);
+
+	if (type == WANS_DUALWAN_IF_WAN ||
+	    type == WANS_DUALWAN_IF_LAN ||
+	    type == WANS_DUALWAN_IF_WAN2 ||
+	    type == WANS_DUALWAN_IF_SFPP)
+		return 1;
+
+	return 0;
+}
 
 #ifdef CONFIG_BCMWL5
 static inline int guest_wlif(char *ifname)
@@ -1952,7 +1990,7 @@ extern int with_non_dfs_chspec(char *wif);
 extern chanspec_t select_band1_chspec_with_same_bw(char *wif, chanspec_t chanspec);
 extern chanspec_t select_band4_chspec_with_same_bw(char *wif, chanspec_t chanspec);
 extern chanspec_t select_chspec_with_band_bw(char *wif, int band, int bw, chanspec_t chanspec);
-extern void wl_list_5g_chans(int unit, int band, char *buf, int len);
+extern void wl_list_5g_chans(int unit, int band, int war, char *buf, int len);
 extern int wl_cap(int unit, char *cap_check);
 #endif
 #ifdef RTCONFIG_AMAS
@@ -2058,6 +2096,7 @@ static inline int is_aqr_phy_exist(void)
 
 /* misc.c */
 extern char *get_productid(void);
+extern char *get_lan_hostname(void);
 extern void logmessage_normal(char *logheader, char *fmt, ...);
 extern char *get_logfile_path(void);
 extern char *get_syslog_fname(unsigned int idx);
@@ -2210,6 +2249,8 @@ extern int isValidMacAddr_and_isNotMulticast(const char* mac);
 extern int isValidEnableOption(const char* option, int range);
 extern int stricmp(char const *a, char const *b, int len);
 extern int isValid_digit_string(const char *string);
+extern int is_valid_hostname(const char *name);
+extern int is_valid_domainname(const char *name);
 
 /* mt7620.c */
 #if defined(RTCONFIG_RALINK_MT7620)
@@ -2252,29 +2293,8 @@ extern char *get_usb_xhci_port(int port);
 #endif
 #ifdef RTCONFIG_DUALWAN
 extern int get_nr_wan_unit(void);
-#else
-static inline int get_wans_dualwan(void) {
-#ifdef RTCONFIG_USB_MODEM
-	return WANSCAP_WAN | WANSCAP_USB;
-#else
-	return WANSCAP_WAN;
-#endif
-}
-static inline int get_dualwan_by_unit(int unit) {
-#ifdef RTCONFIG_MULTICAST_IPTV
-	if(unit == WAN_UNIT_IPTV)
-		return WAN_UNIT_IPTV;
-	if(unit == WAN_UNIT_VOIP)
-		return WAN_UNIT_VOIP;
-#endif
-#ifdef RTCONFIG_USB_MODEM
-	return (unit == WAN_UNIT_FIRST) ? WANS_DUALWAN_IF_WAN : WANS_DUALWAN_IF_USB;
-#else
-	return (unit == WAN_UNIT_FIRST) ? WANS_DUALWAN_IF_WAN : WANS_DUALWAN_IF_NONE;
-#endif
-}
-static inline int get_nr_wan_unit(void) { return 1; }
-#endif
+#endif // RTCONFIG_DUALWAN
+
 static inline int iptv_enabled(void)
 {
 	int stb_x;
@@ -2912,7 +2932,7 @@ typedef struct __amaslib_notification__t_
 } AMASLIB_EVENT_T;
 
 #define AMASLIB_PID_PATH           "/var/run/amas_lib.pid"
-#define AMASLIB_SOCKET_PATH        "/etc/amas_lib_socket"
+#define AMASLIB_SOCKET_PATH        "/var/run/amas_lib_socket"
 #define MAX_AMASLIB_SOCKET_CLIENT  5
 
 /* DEBUG DEFINE */
@@ -2935,6 +2955,8 @@ extern int get_chance_to_control(void);
 extern int wl_set_wifiscan(char *ifname, int val);
 extern int wl_set_mcsindex(char *ifname, int *is_auto, int *idx, char *idx_type, int *stream);
 #endif
+
+extern int amazon_wss_ap_isolate_support(char *prefix);
 
 #endif	/* !__SHARED_H__ */
 

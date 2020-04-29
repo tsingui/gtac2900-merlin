@@ -2989,6 +2989,10 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	    ":FUPNP - [0:0]\n"
 	    ":SECURITY - [0:0]\n"
 	    ":ACCESS_RESTRICTION - [0:0]\n"
+#ifdef RTCONFIG_INTERNETCTRL
+	    ":ICAccept - [0:0]\n"
+	    ":ICDrop - [0:0]\n"
+#endif
 #ifdef RTCONFIG_PARENTALCTRL
 	    ":PControls - [0:0]\n"
 #endif
@@ -3003,6 +3007,9 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	fprintf(fp, ":%sWAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 	fprintf(fp, ":%sLAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 #endif
+#ifdef RTCONFIG_GN_WBL
+	add_GN_WBL_ChainRule(fp);
+#endif
 
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled()) {
@@ -3010,6 +3017,10 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 		    ":INPUT ACCEPT [0:0]\n"
 		    ":FORWARD %s [0:0]\n"
 		    ":OUTPUT ACCEPT [0:0]\n"
+#ifdef RTCONFIG_INTERNETCTRL
+		    ":ICAccept - [0:0]\n"
+		    ":ICDrop - [0:0]\n"
+#endif
 #ifdef RTCONFIG_PARENTALCTRL
 		    ":PControls - [0:0]\n"
 #endif
@@ -3050,13 +3061,35 @@ filter_setting(int wan_unit, char *lan_if, char *lan_ip, char *logaccept, char *
 	}
 #endif
 
+#ifdef RTCONFIG_INTERNETCTRL
+	ic_s *ic_list = NULL;
+	int ic_count;
+
+	get_all_ic_list(&ic_list);
+	ic_count = count_ic_rules(ic_list);
+
+	if(/*nvram_get_int("MULTIFILTER_ALL") != 0 && */ic_count > 0){
+TRACE_PT("writing Internet Control\n");
+		config_ic_rule_string(ic_list, fp, logaccept, logdrop, 1);
+
+#ifdef RTCONFIG_IPV6
+		if (ipv6_enabled()){
+			config_ic_rule_string(ic_list, fp_ipv6, logaccept, logdrop, 1);
+		}
+#endif
+
+		//strcpy(macaccept, "AControls");
+	}
+	free_ic_list(&ic_list);
+#endif
+
 #ifdef RTCONFIG_PARENTALCTRL
 	pc_s *pc_list = NULL;
 	int pc_count;
 
 	get_all_pc_tmp_list(&pc_list);
 	pc_count = count_pc_rules(pc_list, 1);
-	 pc_count += count_pc_rules(pc_list, 2);
+	pc_count += count_pc_rules(pc_list, 2);
 
 	if(pc_count > 0){
 TRACE_PT("writing temporary Parental Control\n");
@@ -3482,6 +3515,11 @@ TRACE_PT("writing Parental Control\n");
 		}
 	}
 #endif
+
+#ifdef RTCONFIG_GN_WBL
+	add_GN_WBL_ForwardRule(fp);
+#endif
+
 	/* Accept the redirect, might be seen as INVALID, packets */
 	fprintf(fp, "-A FORWARD -i %s -o %s -j %s\n", lan_if, lan_if, logaccept);
 	if (*macaccept)
@@ -3704,6 +3742,18 @@ TRACE_PT("writing Parental Control\n");
 		fprintf(fp_ipv6, "-A %s -i %s -o %s -j %s\n", chain, lan_if, wan6face, dtype);
 #endif
 	}
+
+#ifdef RTCONFIG_INTERNETCTRL
+	// MAC address in list and in time period -> ACCEPT.
+	fprintf(fp, "-A ICAccept -j %s\n", logaccept);
+	fprintf(fp, "-A ICDrop -j %s\n", logdrop);
+#ifdef RTCONFIG_IPV6
+	if (ipv6_enabled()) {
+		fprintf(fp_ipv6, "-A ICAccept -j %s\n", logaccept);
+		fprintf(fp_ipv6, "-A ICDrop -j %s\n", logdrop);
+	}
+#endif
+#endif
 
 #ifdef RTCONFIG_PARENTALCTRL
 	// MAC address in list and in time period -> ACCEPT.
@@ -4026,6 +4076,10 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 	    ":FUPNP - [0:0]\n"
 	    ":SECURITY - [0:0]\n"
 	    ":ACCESS_RESTRICTION - [0:0]\n"
+#ifdef RTCONFIG_INTERNETCTRL
+	    ":ICAccept - [0:0]\n"
+	    ":ICDrop - [0:0]\n"
+#endif
 #ifdef RTCONFIG_PARENTALCTRL
 	    ":PControls - [0:0]\n"
 #endif
@@ -4040,6 +4094,9 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 	fprintf(fp, ":%sWAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 	fprintf(fp, ":%sLAN - [0:0]\n", PROTECT_SRV_RULE_CHAIN);
 #endif
+#ifdef RTCONFIG_GN_WBL
+	add_GN_WBL_ChainRule(fp);
+#endif
 
 #ifdef RTCONFIG_IPV6
 	if (ipv6_enabled()) {
@@ -4047,6 +4104,10 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 		    ":INPUT ACCEPT [0:0]\n"
 		    ":FORWARD %s [0:0]\n"
 		    ":OUTPUT ACCEPT [0:0]\n"
+#ifdef RTCONFIG_INTERNETCTRL
+		    ":ICAccept - [0:0]\n"
+		    ":ICDrop - [0:0]\n"
+#endif
 #ifdef RTCONFIG_PARENTALCTRL
 		    ":PControls - [0:0]\n"
 #endif
@@ -4093,6 +4154,28 @@ filter_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)
 				wan_iface, logdrop);
 		}
 	}
+#endif
+
+#ifdef RTCONFIG_INTERNETCTRL
+	ic_s *ic_list = NULL;
+	int ic_count;
+
+	get_all_ic_list(&ic_list);
+	ic_count = count_ic_rules(ic_list);
+
+	if(/*nvram_get_int("MULTIFILTER_ALL") != 0 && */ic_count > 0){
+TRACE_PT("writing Internet Control\n");
+		config_ic_rule_string(ic_list, fp, logaccept, logdrop, 1);
+
+#ifdef RTCONFIG_IPV6
+		if (ipv6_enabled()){
+			config_ic_rule_string(ic_list, fp_ipv6, logaccept, logdrop, 1);
+		}
+#endif
+
+		//strcpy(macaccept, "AControls");
+	}
+	free_pc_list(&ic_list);
 #endif
 
 #ifdef RTCONFIG_PARENTALCTRL
@@ -4525,6 +4608,9 @@ TRACE_PT("writing Parental Control\n");
 	/* Write forward rule for deny lan */
 	vlan_subnet_deny_forward(fp);
 #endif
+#ifdef RTCONFIG_GN_WBL
+	add_GN_WBL_ForwardRule(fp);
+#endif
 
 	/* Accept the redirect, might be seen as INVALID, packets */
 	fprintf(fp, "-A FORWARD -i %s -o %s -j %s\n", lan_if, lan_if, logaccept);
@@ -4791,6 +4877,18 @@ TRACE_PT("writing Parental Control\n");
 			fprintf(fp_ipv6, "-A %s -i %s -o %s -j %s\n", chain, lan_if, wan6face, dtype);
 #endif
 	}
+
+#ifdef RTCONFIG_INTERNETCTRL
+	// MAC address in list and in time period -> ACCEPT.
+	fprintf(fp, "-A ICAccept -j %s\n", logaccept);
+	fprintf(fp, "-A ICDrop -j %s\n", logdrop);
+#ifdef RTCONFIG_IPV6
+	if (ipv6_enabled()) {
+		fprintf(fp_ipv6, "-A ICAccept -j %s\n", logaccept);
+		fprintf(fp_ipv6, "-A ICDrop -j %s\n", logdrop);
+	}
+#endif
+#endif
 
 #ifdef RTCONFIG_PARENTALCTRL
 	// MAC address in list and in time period -> ACCEPT.
@@ -5624,6 +5722,7 @@ add_samba_rules(void)
 }
 #endif
 #endif
+
 //int start_firewall(char *wan_if, char *wan_ip, char *lan_if, char *lan_ip)
 int start_firewall(int wanunit, int lanunit)
 {
@@ -5639,7 +5738,6 @@ int start_firewall(int wanunit, int lanunit)
 	char wanx_if[IFNAMSIZ+1], wanx_ip[32], wan_proto[16];
 	char prefix[] = "wanXXXXXXXXXX_", tmp[100];
 	int lock;
-	int restart_upnp = 0;
 
 	if (!is_routing_enabled())
 		return -1;
@@ -5651,11 +5749,6 @@ int start_firewall(int wanunit, int lanunit)
 	}
 
 	lock = file_lock("firewall");
-
-	if (pidof("miniupnpd") != -1) {
-		stop_upnp();
-		restart_upnp = 1;
-	}
 
 	snprintf(prefix, sizeof(prefix), "wan%d_", wanunit);
 
@@ -6013,14 +6106,14 @@ int start_firewall(int wanunit, int lanunit)
 	run_le_fw_script();
 #endif
 
-leave:
-	if (restart_upnp) start_upnp();
+	/* Assuming wan interface doesn't change */
+	reload_upnp();
 
+leave:
 	file_unlock(lock);
 	run_custom_script("firewall-start", 0, wan_if, NULL);
 	return 0;
 }
-
 
 void enable_ip_forward(void)
 {

@@ -3391,6 +3391,17 @@ wlconf(char *name)
 		WL_IOVAR_SETINT(name, "obss_dyn_bw", 0);
 	}
 
+	/* Set obss_prot to default OFF */
+	if (bandtype == WLC_BAND_5G) {
+		wl_config_t cfg;
+
+		cfg.config = 0;
+		cfg.status = 0;
+
+		printf("%s: disable obss_prot by default\n", __FUNCTION__);
+		WL_IOVAR_SET(name, "obss_prot", &cfg, sizeof(cfg));
+	}
+
 	/* Set beacon rotation */
 	str = nvram_get(strcat_r(prefix, "bcn_rotate", tmp));
 	if (!str) {
