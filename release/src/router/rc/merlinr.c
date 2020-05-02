@@ -162,6 +162,10 @@ void merlinr_init_done()
 #if defined(TUFAX3000) && defined(MERLINR_VER_MAJOR_X)
 //tufax3000=ax82u,ax58u=ax3000
 	//enable_4t4r();
+#elif defined(GTAC2900) && defined(MERLINR_VER_MAJOR_X)
+//ac86u <--> gtac2900
+	patch_ac86();
+	//patch_gt2900();
 #endif
 }
 
