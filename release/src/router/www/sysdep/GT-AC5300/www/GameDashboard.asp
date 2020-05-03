@@ -1344,7 +1344,7 @@ function enableuu(){
 											</div>
 										</div>
 									</div>
-									<div id="uu_field" style="width:345px;height:425px;margin:-428px 0 0 390px;position: relative;">
+									<div id="uu_field" style="width:345px;height:425px;margin:-428px 0 0 390px;position: relative;display:none">
 										<div style="font-size: 26px;color:#BFBFBF;margin-left:12px;"><#UU_Accelerator#></div>
 										<div style="margin: 24px 0 36px 18px;">
 											<img src="/images/uu_accelerator.png" alt="">
