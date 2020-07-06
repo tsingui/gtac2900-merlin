@@ -288,7 +288,7 @@ void enable_wan_led()
 		switch (get_model()) {
 #ifdef RTAC68U
 			case MODEL_RTAC68U:
-				if (!is_ac66u_v2_series())
+				if (!is_ac66u_v2_series() && !is_ac68u_v3_series())
 					break;
 #endif
 			case MODEL_RTAC3200:
@@ -362,13 +362,14 @@ static void wan_led_control(int sig) {
 	if(nvram_match("AllLED", "1")
 			&& !nvram_get_int("led_disable")
 #ifdef RTAC68U
-		&& is_ac66u_v2_series()
+		&& (is_ac66u_v2_series() || is_ac68u_v3_series())
 #endif
 	) {
 #if defined(RTAC68U) ||  defined(RTAC87U) || defined(RTAC3200) || defined(RTCONFIG_BCM_7114) || defined(HND_ROUTER)
-		if (rule_setup)
+		if (rule_setup) {
+			led_control(LED_WAN, LED_ON);
 			disable_wan_led();
-		else
+		} else
 			enable_wan_led();
 #elif defined(DSL_AC68U)
 		if (rule_setup) {
@@ -835,7 +836,7 @@ int do_dns_detect(int wan_unit)
 	hints.ai_family = AF_INET;
 #endif
 	hints.ai_socktype = SOCK_STREAM;
-	timeout = nvram_get_int("dns_probe_timeout") ? : 3;
+	timeout = nvram_get_int("dns_probe_timeout") ? : scan_interval-2;
 
 	ret = -1;
 	if (pipe(pipefd) < 0)
@@ -1071,7 +1072,7 @@ int detect_internet(int wan_unit)
 		link_internet = CONNED;
 
 	/* Set no DNS state even if connected for WEB UI */
-	if(isFirstUse || link_internet == DISCONN || !dns_ret){
+	if(link_internet == DISCONN || !dns_ret){
 		if(nvram_get_int("web_redirect") & WEBREDIRECT_FLAG_NOINTERNET)
 			set_link_internet(wan_unit, 1);
 		else{
@@ -1810,13 +1811,13 @@ _dprintf("# wanduck(%d): if_wan_phyconnected: x_Setting=%d, link_modem=%d, sim_s
 		link_wan_nvname(wan_unit, wired_link_nvram, sizeof(wired_link_nvram));
 		if((ptr = nvram_get(wired_link_nvram)) == NULL || strlen(ptr) <= 0 || link_wan[wan_unit] != atoi(ptr)){
 			if(link_wan[wan_unit]){
-_dprintf("# wanduck(%d): set %s=%d.\n", wan_unit, wired_link_nvram, CONNED);
+//_dprintf("# wanduck(%d): set %s=%d.\n", wan_unit, wired_link_nvram, CONNED);
 				nvram_set_int(wired_link_nvram, CONNED);
 
 				record_wan_state_nvram(wan_unit, -1, -1, WAN_AUXSTATE_NONE);
 			}
 			else{
-_dprintf("# wanduck(%d): set %s=%d.\n", wan_unit, wired_link_nvram, DISCONN);
+//_dprintf("# wanduck(%d): set %s=%d.\n", wan_unit, wired_link_nvram, DISCONN);
 				nvram_set_int(wired_link_nvram, DISCONN);
 
 				record_wan_state_nvram(wan_unit, WAN_STATE_DISCONNECTED, -1, WAN_AUXSTATE_NOPHY);
@@ -2735,8 +2736,10 @@ int get_last_unit(int wan_unit){
 }
 
 int switch_wan_line(const int wan_unit, const int restart_other){
-#ifdef RTCONFIG_USB_MODEM
+#if defined(RTCONFIG_DUALWAN) || defined(RTCONFIG_USB_MODEM)
 	char tmp[100] = "";
+#endif
+#ifdef RTCONFIG_USB_MODEM
 	int retry, lock;
 #endif
 	char prefix[] = "wanXXXXXX_", cmd[32];
@@ -3271,7 +3274,7 @@ _dprintf("wanduck(%d)(first detect start): state %d, state_old %d, changed %d, w
 #elif defined(RTAC68U) || defined(RTAC87U) || defined(RTAC3200) || defined(RTCONFIG_BCM_7114) || (defined(HND_ROUTER) && !defined(RTCONFIG_HND_ROUTER_AX))
 		if(nvram_match("AllLED", "1")
 #ifdef RTAC68U
-				&& is_ac66u_v2_series()
+				&& (is_ac66u_v2_series() || is_ac68u_v3_series())
 #endif
 				)
 		{
@@ -4358,7 +4361,7 @@ _dprintf("nat_rule: start_nat_rules 6.\n");
 #elif defined(RTAC68U) || defined(RTAC87U) || defined(RTAC3200) || defined(RTCONFIG_BCM_7114) || defined(HND_ROUTER)
 					if(
 #ifdef RTAC68U
-						is_ac66u_v2_series()
+						(is_ac66u_v2_series() || is_ac68u_v3_series())
 #else
 						1
 #endif // RTAC68U
@@ -4369,8 +4372,10 @@ _dprintf("nat_rule: start_nat_rules 6.\n");
 					){
 						logmessage("DualWAN", "skip single wan wan_led_control - WANRED off\n");
 						if(nvram_match("AllLED", "1")
-						   && !nvram_get_int("led_disable"))
+						   && !nvram_get_int("led_disable")) {
+						   led_control(LED_WAN, LED_ON);
 							disable_wan_led();
+						}
 					}
 #endif
 
@@ -4449,7 +4454,7 @@ _dprintf("nat_rule: start_nat_rules 6.\n");
 					&& !nvram_get_int("led_disable")
 #endif
 #ifdef RTAC68U
-						&& is_ac66u_v2_series()
+						&& (is_ac66u_v2_series() || is_ac68u_v3_series())
 #endif
 						)
 					enable_wan_led();
@@ -4529,7 +4534,8 @@ _dprintf("nat_rule: stop_nat_rules 7.\n");
 		else if(conn_changed_state[current_wan_unit] == PHY_RECONN){
 #ifdef RTCONFIG_USB_MODEM
 			if(dualwan_unit__usbif(current_wan_unit)){
-				if(current_state[current_wan_unit] == WAN_STATE_INITIALIZING){
+				if(current_state[current_wan_unit] == WAN_STATE_INITIALIZING
+						|| (nvram_get_int(nvram_state[current_wan_unit]) == WAN_STATE_STOPPED && nvram_get_int(nvram_sbstate[current_wan_unit]) == WAN_STOPPED_REASON_NONE)){
 					if((modem_unit = get_modemunit_by_type(get_dualwan_by_unit(current_wan_unit))) == MODEM_UNIT_NONE){
 						_dprintf("%s 5: cannot get the modem unit!\n", __FUNCTION__);
 						goto WANDUCK_SELECT;
@@ -4589,7 +4595,7 @@ _dprintf("nat_rule: stop_nat_rules 7.\n");
 				&& !nvram_get_int("led_disable")
 #endif
 #ifdef RTAC68U
-				&& is_ac66u_v2_series()
+				&& (is_ac66u_v2_series() || is_ac68u_v3_series())
 #endif
 			){
 				link_status = 0;

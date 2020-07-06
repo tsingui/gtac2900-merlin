@@ -1722,6 +1722,12 @@ int main(int argc, char **argv)
 		restart_wireless();
 		return 0;
 	}
+#if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
+	else if (!strcmp(base, "sendarp")) {
+		send_arpreq();
+		return 0;
+	}
+#endif
 #ifdef RTCONFIG_BCM_7114
 	else if (!strcmp(base, "stop_wl")) {
 		stop_wl_bcm();
@@ -2180,6 +2186,9 @@ int main(int argc, char **argv)
 	}
 	else if (!strcmp(base, "mtd_erase_image_update")) {
 		return mtd_erase_image_update();
+	}
+	else if (!strcmp(base, "mtd_erase_misc2")) {
+		return mtd_erase_misc2();
 	}
 #else
 	else if (!strcmp(base, "nvram_erase")) {

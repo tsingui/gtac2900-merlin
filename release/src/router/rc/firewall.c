@@ -84,6 +84,10 @@ const int allowed_local_icmpv6[] =
 	  148, 149, 151, 152, 153 };
 #endif
 
+#ifdef RTCONFIG_VPN_FUSION
+extern int write_vpn_fusion(FILE *fp, const char* lan_ip);
+#endif
+
 char *mac_conv(char *mac_name, int idx, char *buf);	// oleg patch
 
 void write_porttrigger(FILE *fp, char *wan_if, int is_nat);
@@ -1587,6 +1591,10 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 			":CLIENT_TO_INTERNET - [0:0]\n");
 	}
 #endif
+#ifdef RTCONFIG_VPN_FUSION
+	fprintf(fp,
+		":VPN_FUSION - [0:0]\n");
+#endif
 
 	ip2class(lan_ip, nvram_safe_get("lan_netmask"), lan_class);
 
@@ -1668,6 +1676,10 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 			free(nv);
 		}
 	}
+#endif
+
+#ifdef RTCONFIG_VPN_FUSION
+        write_vpn_fusion(fp, lan_ip);
 #endif
 
 #ifdef RTCONFIG_YANDEXDNS
@@ -1823,7 +1835,7 @@ void nat_setting(char *wan_if, char *wan_ip, char *wanx_if, char *wanx_ip, char 
 	symlink(name, NAT_RULES);
 
 	wan_unit = wan_ifunit(wan_if);
-	if(is_phy_connect(wan_unit)){
+	if(is_phy_connect2(wan_unit)){
 		/* force nat update */
 		nvram_set_int("nat_state", NAT_STATE_UPDATE);
 _dprintf("nat_rule: start_nat_rules 1.\n");
@@ -1859,7 +1871,7 @@ void nat_setting2(char *lan_if, char *lan_ip, char *logaccept, char *logdrop)	//
 	strcpy(g_lan_ip, inet_ntoa(gst));
 #endif
 
-	ip2class(lan_ip, nvram_safe_get("lan_netmask"), lan_class);
+ 	ip2class(lan_ip, nvram_safe_get("lan_netmask"), lan_class);
 
 #ifdef RTCONFIG_MULTICAST_IPTV
 	if (nvram_get_int("switch_stb_x") > 6)
@@ -2300,7 +2312,7 @@ void redirect_setting(void)
 #endif
 #ifdef RTCONFIG_ATEFROMWAN
 	if(repeater_mode() && !nvram_get_int("x_Setting")) {
-		fprintf(redirect_fp, "-I PREROUTING -i %s -p tcp -m tcp --dport 80 -j ACCEPT\n", 
+		fprintf(redirect_fp, "-I PREROUTING -i %s -p tcp -m tcp --dport 80 -j ACCEPT\n",
 		nvram_safe_get("wan_ifnames"));
 	}
 #endif
@@ -2781,7 +2793,7 @@ void write_UrlFilter(char *chain, char *lan_if, char *lan_ip, char *logdrop, FIL
 						continue;
 					}
 
-					snprintf(list2, sizeof(list2), "%s|%02d|%s", list, strlen(p), p);
+					snprintf(list2, sizeof(list2), "%s|%02x|%s", list, strlen(p), p);
 					strlcpy(list, list2, sizeof(list));
 				}
 
@@ -2815,7 +2827,7 @@ void write_UrlFilter(char *chain, char *lan_if, char *lan_ip, char *logdrop, FIL
 							continue;
 						}
 
-						snprintf(list2, sizeof(list2), "%s|%02d|%s", list, strlen(p), p);
+						snprintf(list2, sizeof(list2), "%s|%02x|%s", list, strlen(p), p);
 						strlcpy(list, list2, sizeof(list));
 					}
 
